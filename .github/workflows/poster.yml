@@ -3,7 +3,7 @@ name: Medium Auto Poster
 on:
   schedule:
     
-    - cron: "0 */8 * * *"
+    - cron: "0 */10 * * *"
   workflow_dispatch:
 
 permissions:
