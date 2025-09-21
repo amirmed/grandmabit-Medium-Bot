@@ -1,3 +1,10 @@
+اذهب إلى Settings → Secrets → Actions
+أضف:
+GEMINI_API_KEY
+MEDIUM_SID_COOKIE
+MEDIUM_UID_COOKIE
+*****************************************************************
+كيف تضيفهم
 ادخل الى
 Settings
 تم على اليسار اضغط على 
