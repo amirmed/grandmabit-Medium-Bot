@@ -13,12 +13,24 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة v29 ---
+# --- برمجة ahmed si - النسخة v30 Universal ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
 SITE_DOMAIN = f"{SITE_NAME}.com"
 RSS_URL = f"https://{SITE_DOMAIN}/feed"
+
+# مسارات الصور المحتملة (أضف مسار موقعك إن كان مختلفاً)
+IMAGE_PATHS = [
+    "/assets/images/",  # fastyummyfood
+    "/wp-content/uploads/",  # WordPress sites
+    "/images/",  # مواقع عامة
+    "/media/",  # Django sites
+    "/static/images/",  # مواقع static
+    "/content/images/",  # Ghost CMS
+    f"/{SITE_NAME}",  # مسار خاص بالموقع
+    "/recipes/images/",  # مواقع الوصفات
+]
 # ==========================================
 
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -60,14 +72,48 @@ def extract_image_url_from_entry(entry):
 
 def is_valid_article_image(url):
     """التحقق من أن الصورة صالحة للمقال"""
-    if any(x in url for x in ['width=16', 'width=32', 'width=48', 'width=64', 'width=96', 'width=128', 'width=160']):
+    # استبعاد الصور الصغيرة جداً
+    small_sizes = ['16', '32', '48', '64', '96', '128', '150', '160']
+    for size in small_sizes:
+        if f'width={size}' in url or f'w={size}' in url or f'-{size}x' in url or f'_{size}x' in url:
+            return False
+    
+    # استبعاد الصور غير المرغوبة
+    exclude_keywords = [
+        'avatar', 'author', 'profile', 'logo', 'icon', 
+        'thumbnail', 'thumb', 'placeholder', 'blank',
+        'advertising', 'banner', 'badge', 'button'
+    ]
+    url_lower = url.lower()
+    if any(keyword in url_lower for keyword in exclude_keywords):
         return False
     
-    exclude_keywords = ['avatar', 'author', 'profile', 'logo', 'icon', 'thumbnail', 'thumb']
-    if any(keyword in url.lower() for keyword in exclude_keywords):
+    # استبعاد صور tracking وanalytics
+    if any(x in url_lower for x in ['pixel', 'tracking', 'analytics', '.gif']):
         return False
     
-    return True
+    # قبول فقط صيغ الصور المعروفة
+    valid_extensions = ['.jpg', '.jpeg', '.png', '.webp']
+    has_valid_extension = any(ext in url_lower for ext in valid_extensions)
+    
+    return has_valid_extension
+
+def is_recipe_image(url, alt_text=""):
+    """التحقق من أن الصورة متعلقة بالوصفة"""
+    # إذا كان في المسار كلمات متعلقة بالطعام
+    food_keywords = ['recipe', 'food', 'dish', 'meal', 'cook', 'ingredient']
+    if any(keyword in url.lower() or keyword in alt_text.lower() for keyword in food_keywords):
+        return True
+    
+    # إذا كان حجم الصورة مناسب (ليس صغير جداً)
+    if any(path in url for path in IMAGE_PATHS):
+        return True
+    
+    # إذا كان من نفس الدومين
+    if SITE_DOMAIN in url:
+        return True
+    
+    return False
 
 def scrape_article_images_with_alt(article_url):
     """كشط الصور مع نصوص alt من داخل المقال"""
@@ -80,6 +126,8 @@ def scrape_article_images_with_alt(article_url):
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    # إضافة user agent حقيقي
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -98,120 +146,172 @@ def scrape_article_images_with_alt(article_url):
         print("    ⏳ تحميل الصفحة...")
         driver.get(article_url)
         
+        # انتظار أطول لتحميل الصور
+        time.sleep(3)
+        
         wait = WebDriverWait(driver, 10)
-        try:
-            article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "article.article")))
-        except:
+        
+        # البحث عن منطقة المحتوى
+        article_element = None
+        selectors = [
+            "article.article",
+            "article",
+            "div.article-content",
+            "div.entry-content",
+            "div.post-content",
+            "div.content",
+            "main",
+            "div.recipe-content"
+        ]
+        
+        for selector in selectors:
             try:
-                article_element = wait.until(EC.presence_of_element_located((By.TAG_NAME, "article")))
+                article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                print(f"    ✓ تم العثور على المحتوى في: {selector}")
+                break
             except:
-                print("    ⚠️ لم أجد عنصر article")
-                article_element = driver.find_element(By.TAG_NAME, "body")
+                continue
         
-        driver.execute_script("arguments[0].scrollIntoView();", article_element)
+        if not article_element:
+            print("    ⚠️ لم أجد منطقة المحتوى، سأبحث في الصفحة كاملة")
+            article_element = driver.find_element(By.TAG_NAME, "body")
+        
+        # التمرير لتحميل كل الصور
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/4);")
         time.sleep(1)
-        driver.execute_script("""
-            var article = arguments[0];
-            article.scrollTop = article.scrollHeight / 2;
-        """, article_element)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
         time.sleep(1)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight*3/4);")
+        time.sleep(1)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
         
-        print("    🔎 البحث عن الصور وalt text...")
+        print("    🔎 البحث عن الصور...")
         
+        # البحث عن جميع الصور
+        all_images = driver.find_elements(By.TAG_NAME, "img")
+        print(f"    📊 عدد الصور الكلي في الصفحة: {len(all_images)}")
+        
+        # فقط الصور داخل المقال
         img_elements = article_element.find_elements(By.TAG_NAME, "img")
+        print(f"    📊 عدد الصور في المقال: {len(img_elements)}")
         
         for img in img_elements:
             try:
-                src = img.get_attribute("src")
-                if not src:
-                    src = img.get_attribute("data-src")
-                if not src:
-                    src = img.get_attribute("data-lazy-src")
-                if not src:
-                    src = img.get_attribute("data-original")
-                if not src:
-                    src = driver.execute_script("return arguments[0].currentSrc;", img)
+                # جرب كل المصادر الممكنة
+                src = None
+                src_attrs = ['src', 'data-src', 'data-lazy-src', 'data-original', 'data-srcset']
                 
-                alt_text = img.get_attribute("alt")
-                if not alt_text:
-                    alt_text = img.get_attribute("title")
-                if not alt_text:
-                    alt_text = ""
+                for attr in src_attrs:
+                    src = img.get_attribute(attr)
+                    if src:
+                        break
                 
-                if src and "/assets/images/" in src:
-                    clean_url = src
-                    
-                    if "/cdn-cgi/image/" in clean_url:
-                        match = re.search(r'/assets/images/[^/\s]+', clean_url)
+                # إذا لم نجد، جرب JavaScript
+                if not src:
+                    src = driver.execute_script("return arguments[0].currentSrc || arguments[0].src;", img)
+                
+                if not src:
+                    continue
+                
+                # إذا كان srcset، خذ أكبر صورة
+                if ' ' in src and ',' in src:  # srcset format
+                    srcset_parts = src.split(',')
+                    # خذ آخر واحد (عادة الأكبر)
+                    src = srcset_parts[-1].strip().split(' ')[0]
+                
+                # الحصول على alt text
+                alt_text = img.get_attribute("alt") or img.get_attribute("title") or ""
+                
+                # الحصول على حجم الصورة
+                width = img.get_attribute("width") or driver.execute_script("return arguments[0].naturalWidth;", img)
+                height = img.get_attribute("height") or driver.execute_script("return arguments[0].naturalHeight;", img)
+                
+                print(f"    🔍 فحص صورة: {src[:50]}... | Alt: {alt_text[:30]}... | Size: {width}x{height}")
+                
+                # تنظيف الرابط
+                clean_url = src
+                
+                # إزالة معاملات CDN
+                if "/cdn-cgi/image/" in clean_url:
+                    # استخراج الرابط الأصلي
+                    match = re.search(r'/(wp-content/uploads/[^"]+)', clean_url)
+                    if match:
+                        clean_url = f"https://{SITE_DOMAIN}" + match.group(1)
+                    else:
+                        # جرب استخراج أي مسار
+                        match = re.search(r'/([^/]+\.(jpg|jpeg|png|webp))', clean_url, re.IGNORECASE)
                         if match:
-                            clean_url = f"https://{SITE_DOMAIN}" + match.group()
+                            clean_url = f"https://{SITE_DOMAIN}/wp-content/uploads/" + match.group(1)
+                
+                # تحويل إلى رابط مطلق
+                if not clean_url.startswith("http"):
+                    if clean_url.startswith("//"):
+                        clean_url = "https:" + clean_url
+                    elif clean_url.startswith("/"):
+                        from urllib.parse import urljoin
+                        clean_url = urljoin(article_url, clean_url)
+                
+                # التحقق من صحة الصورة
+                if is_valid_article_image(clean_url):
+                    # تحقق إضافي: هل الصورة كبيرة بما يكفي؟
+                    try:
+                        width_int = int(width) if width else 0
+                        if width_int < 200 and width_int > 0:  # صغيرة جداً
+                            print(f"    ❌ صورة صغيرة جداً: {width_int}px")
+                            continue
+                    except:
+                        pass
                     
-                    if not clean_url.startswith("http"):
-                        if clean_url.startswith("//"):
-                            clean_url = "https:" + clean_url
-                        elif clean_url.startswith("/"):
-                            from urllib.parse import urljoin
-                            clean_url = urljoin(article_url, clean_url)
+                    # تجنب التكرار
+                    image_exists = False
+                    for img_data in images_data:
+                        if img_data['url'] == clean_url:
+                            image_exists = True
+                            break
                     
-                    if is_valid_article_image(clean_url):
-                        image_exists = False
-                        for img_data in images_data:
-                            if img_data['url'] == clean_url:
-                                image_exists = True
-                                break
-                        
-                        if not image_exists:
-                            images_data.append({
-                                'url': clean_url,
-                                'alt': alt_text
-                            })
-                            print(f"    ✓ صورة: {clean_url[:50]}... | Alt: {alt_text[:30]}...")
+                    if not image_exists:
+                        images_data.append({
+                            'url': clean_url,
+                            'alt': alt_text
+                        })
+                        print(f"    ✅ تمت إضافة الصورة: {clean_url[:60]}...")
+                else:
+                    print(f"    ❌ صورة مرفوضة: {clean_url[:60]}...")
                         
             except Exception as e:
+                print(f"    ⚠️ خطأ في معالجة صورة: {e}")
                 continue
         
-        source_elements = article_element.find_elements(By.TAG_NAME, "source")
-        for source in source_elements:
-            try:
-                srcset = source.get_attribute("srcset")
-                if srcset and "/assets/images/" in srcset:
-                    urls_in_srcset = re.findall(r'([^\s,]+)', srcset)
-                    for url in urls_in_srcset:
-                        if "/assets/images/" in url and not any(x in url for x in ['width=48', 'width=96', 'width=160']):
-                            if "/cdn-cgi/image/" in url:
-                                match = re.search(r'/assets/images/[^/\s]+', url)
-                                if match:
-                                    url = f"https://{SITE_DOMAIN}" + match.group()
-                            
-                            if not url.startswith("http"):
-                                from urllib.parse import urljoin
-                                url = urljoin(article_url, url)
-                            
-                            if is_valid_article_image(url):
-                                image_exists = False
-                                for img_data in images_data:
-                                    if img_data['url'] == url:
-                                        image_exists = True
-                                        break
-                                
-                                if not image_exists:
-                                    alt_text = ""
-                                    try:
-                                        picture = source.find_element(By.XPATH, "..")
-                                        img_in_picture = picture.find_element(By.TAG_NAME, "img")
-                                        alt_text = img_in_picture.get_attribute("alt") or ""
-                                    except:
-                                        pass
-                                    
+        # إذا لم نجد صور، ابحث في picture elements
+        if len(images_data) < 2:
+            print("    🔎 البحث في عناصر picture...")
+            picture_elements = article_element.find_elements(By.TAG_NAME, "picture")
+            for picture in picture_elements:
+                try:
+                    sources = picture.find_elements(By.TAG_NAME, "source")
+                    for source in sources:
+                        srcset = source.get_attribute("srcset")
+                        if srcset:
+                            # خذ أكبر صورة من srcset
+                            urls = re.findall(r'(https?://[^\s]+)', srcset)
+                            if urls:
+                                url = urls[-1]  # آخر واحد عادة الأكبر
+                                if is_valid_article_image(url):
                                     images_data.append({
                                         'url': url,
-                                        'alt': alt_text
+                                        'alt': 'Recipe image'
                                     })
-                                    print(f"    ✓ صورة من srcset: {url[:50]}...")
-            except:
-                continue
+                                    print(f"    ✅ صورة من picture: {url[:60]}...")
+                                    break
+                except:
+                    continue
         
         print(f"--- ✅ تم العثور على {len(images_data)} صورة صالحة من المقال")
+        
+        # طباعة تفاصيل الصور المكتشفة
+        for i, img in enumerate(images_data, 1):
+            print(f"    📸 الصورة {i}: {img['url']}")
         
     except Exception as e:
         print(f"--- ⚠️ خطأ في Selenium: {e}")
@@ -220,6 +320,7 @@ def scrape_article_images_with_alt(article_url):
     
     return images_data
 
+# بقية الكود يبقى كما هو...
 def get_best_images_for_article(article_url, rss_image=None):
     """الحصول على أفضل صورتين مع alt text"""
     scraped_images_data = scrape_article_images_with_alt(article_url)
@@ -262,7 +363,6 @@ def create_mid_cta(original_link, recipe_title="this recipe"):
         f'🍳 <em>See step-by-step photos and pro tips on <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em>'
     ]
     
-    # اختر واحد عشوائي أو بناءً على hash الرابط
     import hashlib
     index = int(hashlib.md5(original_link.encode()).hexdigest(), 16) % len(cta_variations)
     return f'<p>{cta_variations[index]}</p>'
@@ -386,7 +486,7 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     else:
         image1_with_caption = ""
     
-    # إعداد CTA المنتصف (خفيف وطبيعي)
+    # إعداد CTA المنتصف
     mid_cta = create_mid_cta(original_link, original_title)
     
     # إعداد HTML للصورة الثانية
@@ -414,13 +514,13 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     content_html = content_html.replace("INSERT_MID_CTA_HERE", mid_cta)
     content_html = content_html.replace("INSERT_IMAGE_2_HERE", image2_with_caption)
     
-    # إضافة CTA النهائي القوي
+    # إضافة CTA النهائي
     final_cta = create_final_cta(original_link)
     
     return content_html + final_cta
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v29 (Double CTA) لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v30 Universal لموقع {SITE_DOMAIN} ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -484,7 +584,6 @@ def main():
             image1_html = ""
             caption1 = ""
         
-        # CTA منتصف بسيط
         mid_cta = f'<p><em>👉 See the full recipe at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em></p>'
         
         if image2_data and image2_data['url'] != image1_data.get('url', ''):
@@ -495,7 +594,6 @@ def main():
             image2_html = ""
             caption2 = ""
         
-        # CTA نهائي
         final_cta = f'<br><p><strong>Get the complete recipe with all ingredients and instructions at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</strong></p>'
         
         full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
