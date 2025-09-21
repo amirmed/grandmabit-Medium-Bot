@@ -2,9 +2,9 @@ name: Medium Auto Poster
 
 on:
   schedule:
-    
+    # ينشر 3 مرات يومياً: 12AM, 8AM, 4PM UTC
     - cron: "0 0,8,16 * * *"
-  workflow_dispatch:
+  workflow_dispatch:  # يسمح بالتشغيل اليدوي
 
 permissions:
   contents: write
@@ -12,6 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # حد أقصى 15 دقيقة
 
     steps:
       - name: Checkout Repo
@@ -26,7 +27,15 @@ jobs:
           python-version: '3.10'
 
       - name: Install Python Dependencies
-        run: pip install selenium feedparser webdriver-manager selenium-stealth requests beautifulsoup4
+        run: |
+          pip install --upgrade pip
+          pip install selenium==4.* 
+          pip install feedparser 
+          pip install webdriver-manager 
+          pip install selenium-stealth 
+          pip install requests 
+          pip install beautifulsoup4
+          # Pillow غير مطلوبة - تم حذفها
  
       - name: Run Python Script
         id: script
@@ -34,16 +43,32 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MEDIUM_SID_COOKIE: ${{ secrets.MEDIUM_SID_COOKIE }}
           MEDIUM_UID_COOKIE: ${{ secrets.MEDIUM_UID_COOKIE }}
-        run: python main.py
+        run: |
+          python main.py
+        continue-on-error: false  # توقف إذا فشل
         
       - name: Commit and Push Log File
+        if: always()  # حفظ الملف حتى لو فشل النشر
         run: |
           if [ -f posted_links.txt ]; then
             git config --global user.name 'GitHub Actions Bot'
             git config --global user.email 'actions-bot@github.com'
             git add posted_links.txt
-            git diff --staged --quiet || git commit -m "Update posted links log"
+            # إضافة ملفات الخطأ إن وجدت للتشخيص
+            [ -f error_screenshot.png ] && git add error_screenshot.png || true
+            [ -f error_page_source.html ] && git add error_page_source.html || true
+            git diff --staged --quiet || git commit -m "Update posted links log [$(date +'%Y-%m-%d %H:%M')]"
             git push
           else
             echo "Log file not found, nothing to commit."
           fi
+
+      - name: Upload Error Artifacts
+        if: failure()  # فقط عند الفشل
+        uses: actions/upload-artifact@v3
+        with:
+          name: error-logs
+          path: |
+            error_screenshot.png
+            error_page_source.html
+          retention-days: 7
