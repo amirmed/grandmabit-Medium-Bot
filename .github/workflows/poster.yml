@@ -2,8 +2,9 @@ name: Medium Auto Poster
 
 on:
   schedule:
-    # ينشر 3 مرات يومياً: 12AM, 8AM, 4PM UTC
-    - cron: "0 0,8,16 * * *"
+    # أوقات الذروة للجمهور الأمريكي (3 مرات يومياً)
+    # 8 AM EST, 12 PM EST, 5 PM EST
+- cron: "0 14,19,23 * * *"
   workflow_dispatch:  # يسمح بالتشغيل اليدوي
 
 permissions:
@@ -12,17 +13,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # حد أقصى 15 دقيقة
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # تحديث إلى v4
 
       - name: Set up Chrome
         uses: browser-actions/setup-chrome@v1
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5  # تحديث إلى v5
         with:
           python-version: '3.10'
 
@@ -35,7 +36,6 @@ jobs:
           pip install selenium-stealth 
           pip install requests 
           pip install beautifulsoup4
-          # Pillow غير مطلوبة - تم حذفها
  
       - name: Run Python Script
         id: script
@@ -44,30 +44,31 @@ jobs:
           MEDIUM_SID_COOKIE: ${{ secrets.MEDIUM_SID_COOKIE }}
           MEDIUM_UID_COOKIE: ${{ secrets.MEDIUM_UID_COOKIE }}
         run: |
+          echo "🚀 Starting posting at $(date)"
           python main.py
-        continue-on-error: false  # توقف إذا فشل
+        continue-on-error: false
         
       - name: Commit and Push Log File
-        if: always()  # حفظ الملف حتى لو فشل النشر
+        if: always()
         run: |
           if [ -f posted_links.txt ]; then
             git config --global user.name 'GitHub Actions Bot'
             git config --global user.email 'actions-bot@github.com'
             git add posted_links.txt
-            # إضافة ملفات الخطأ إن وجدت للتشخيص
+            # إضافة ملفات الخطأ إن وجدت
             [ -f error_screenshot.png ] && git add error_screenshot.png || true
             [ -f error_page_source.html ] && git add error_page_source.html || true
-            git diff --staged --quiet || git commit -m "Update posted links log [$(date +'%Y-%m-%d %H:%M')]"
+            git diff --staged --quiet || git commit -m "Update posted links [$(date +'%Y-%m-%d %H:%M')] 🚀"
             git push
           else
             echo "Log file not found, nothing to commit."
           fi
 
       - name: Upload Error Artifacts
-        if: failure()  # فقط عند الفشل
-        uses: actions/upload-artifact@v3
+        if: failure()
+        uses: actions/upload-artifact@v4  # ✅ تحديث إلى v4
         with:
-          name: error-logs
+          name: error-logs-${{ github.run_number }}
           path: |
             error_screenshot.png
             error_page_source.html
