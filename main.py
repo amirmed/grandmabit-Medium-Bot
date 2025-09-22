@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة v31 Direct Publish ---
+# --- برمجة ahmed si - النسخة v31.1 Fixed ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -425,7 +425,7 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     return content_html + final_cta
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v31 Direct Publish لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v31.1 لموقع {SITE_DOMAIN} ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -561,34 +561,31 @@ def main():
         time.sleep(12)
         
         print("--- 6. بدء عملية النشر...")
-        # البحث عن زر Ready to publish? أو Publish
-        publish_selectors = [
-            'button[data-action="show-prepublish"]',
-            'button:contains("Ready to publish")',
-            'button:contains("Publish")',
-            'span:contains("Ready to publish")',
-            'button[aria-label*="publish"]'
-        ]
-        
-        publish_button = None
-        for selector in publish_selectors:
-            try:
-                if ':contains' in selector:
-                    # استخدام XPath للبحث عن النص
-                    xpath = f"//button[contains(., '{selector.split('\"')[1]}')]"
-                    publish_button = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
-                else:
-                    publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                print(f"    ✓ تم العثور على زر النشر: {selector}")
-                break
-            except:
-                continue
-        
-        if publish_button:
+        # محاولة الضغط على زر النشر
+        try:
+            publish_button = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
+            ))
             publish_button.click()
-        else:
-            print("!!! لم أجد زر النشر، أحاول طريقة أخرى...")
-            driver.execute_script("document.querySelector('button[data-action=\"show-prepublish\"]').click()")
+            print("    ✓ تم الضغط على زر النشر")
+        except:
+            # محاولة بطريقة أخرى
+            try:
+                publish_button = driver.find_element(By.XPATH, "//button[contains(., 'Ready to publish')]")
+                publish_button.click()
+                print("    ✓ تم الضغط على زر Ready to publish")
+            except:
+                print("    ⚠️ لم أجد زر النشر، أحاول JavaScript...")
+                driver.execute_script("""
+                    var buttons = document.querySelectorAll('button');
+                    for(var i=0; i<buttons.length; i++) {
+                        if(buttons[i].textContent.includes('publish') || 
+                           buttons[i].textContent.includes('Publish')) {
+                            buttons[i].click();
+                            break;
+                        }
+                    }
+                """)
         
         time.sleep(3)
         
@@ -609,98 +606,70 @@ def main():
             except:
                 print("--- تخطي الوسوم")
         
-        # --- الخطوة الحرجة: اختيار النشر المباشر وليس المسودة ---
-        print("--- 8. اختيار النشر المباشر (وليس المسودة)...")
+        print("--- 8. النشر النهائي...")
         
-        # البحث عن خيار "Publish now" إن وجد
+        # محاولة الضغط على زر Publish now
+        publish_confirmed = False
+        
+        # الطريقة 1: البحث عن زر التأكيد
         try:
-            # محاولة العثور على radio button أو checkbox للنشر الفوري
-            publish_now_radio = driver.find_element(By.XPATH, "//input[@type='radio' and @value='now']")
-            if publish_now_radio and not publish_now_radio.is_selected():
-                publish_now_radio.click()
-                print("    ✓ تم اختيار النشر الفوري")
-                time.sleep(1)
+            confirm_button = wait.until(EC.element_to_be_clickable(
+                (By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
+            ))
+            driver.execute_script("arguments[0].scrollIntoView(true);", confirm_button)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", confirm_button)
+            publish_confirmed = True
+            print("    ✅ تم الضغط على زر التأكيد")
         except:
             pass
         
-        # البحث عن "Schedule" أو "Publish now" dropdown
-        try:
-            schedule_dropdown = driver.find_element(By.XPATH, "//button[contains(., 'Schedule') or contains(., 'When')]")
-            schedule_dropdown.click()
-            time.sleep(1)
-            
-            # اختيار "Publish now"
-            publish_now_option = driver.find_element(By.XPATH, "//div[contains(., 'Publish now') or contains(., 'Now')]")
-            publish_now_option.click()
-            print("    ✓ تم اختيار Publish now من القائمة")
-            time.sleep(1)
-        except:
-            pass
-        
-        print("--- 9. النشر النهائي...")
-        
-        # البحث عن زر التأكيد النهائي
-        confirm_selectors = [
-            'button[data-testid="publishConfirmButton"]',
-            'button[data-action="publish"]',
-            'button:contains("Publish now")',
-            'button:contains("Publish")',
-            'button[aria-label*="Publish"]'
-        ]
-        
-        publish_now_button = None
-        for selector in confirm_selectors:
+        # الطريقة 2: البحث عن أي زر يحتوي على Publish
+        if not publish_confirmed:
             try:
-                if ':contains' in selector:
-                    xpath = f"//button[contains(., '{selector.split('\"')[1]}')]"
-                    buttons = driver.find_elements(By.XPATH, xpath)
-                    # اختر آخر زر (عادة زر التأكيد النهائي)
-                    if buttons:
-                        publish_now_button = buttons[-1]
-                        if publish_now_button.is_enabled():
-                            print(f"    ✓ تم العثور على زر النشر النهائي: {selector}")
-                            break
-                else:
-                    publish_now_button = driver.find_element(By.CSS_SELECTOR, selector)
-                    if publish_now_button and publish_now_button.is_enabled():
-                        print(f"    ✓ تم العثور على زر النشر النهائي: {selector}")
+                # البحث عن جميع الأزرار
+                all_buttons = driver.find_elements(By.TAG_NAME, "button")
+                for button in all_buttons:
+                    button_text = button.text.lower()
+                    # البحث عن زر النشر النهائي (وليس Ready to publish)
+                    if ('publish now' in button_text or 
+                        (button_text == 'publish') or 
+                        ('confirm' in button_text and 'publish' in button_text)):
+                        driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                        time.sleep(1)
+                        driver.execute_script("arguments[0].click();", button)
+                        publish_confirmed = True
+                        print(f"    ✅ تم الضغط على زر: {button.text}")
                         break
             except:
-                continue
+                pass
         
-        if publish_now_button:
-            time.sleep(2)
-            # استخدام JavaScript للضغط لضمان النجاح
-            driver.execute_script("arguments[0].scrollIntoView(true);", publish_now_button)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", publish_now_button)
-            print("    ✅ تم الضغط على زر النشر النهائي")
-        else:
-            print("!!! تحذير: لم أجد زر النشر النهائي، أحاول الطريقة الافتراضية...")
-            # محاولة أخيرة
+        # الطريقة 3: استخدام JavaScript
+        if not publish_confirmed:
+            print("    ⚠️ محاولة أخيرة بـ JavaScript...")
             driver.execute_script("""
+                // البحث عن زر Publish now أو Publish
                 var buttons = document.querySelectorAll('button');
-                for(var i=0; i<buttons.length; i++) {
-                    if(buttons[i].textContent.includes('Publish') && 
-                       !buttons[i].textContent.includes('Ready') &&
-                       buttons[i].offsetParent !== null) {
+                var published = false;
+                for(var i=buttons.length-1; i>=0; i--) {
+                    var text = buttons[i].textContent.toLowerCase();
+                    if((text.includes('publish now') || text === 'publish') && 
+                       !text.includes('ready')) {
                         buttons[i].click();
+                        published = true;
+                        console.log('Clicked: ' + buttons[i].textContent);
                         break;
                     }
                 }
+                if(!published) {
+                    // محاولة الضغط على أي زر publish متاح
+                    var confirmBtn = document.querySelector('button[data-testid="publishConfirmButton"]');
+                    if(confirmBtn) confirmBtn.click();
+                }
             """)
         
-        print("--- 10. انتظار معالجة النشر...")
-        time.sleep(20)  # انتظار أطول للتأكد من النشر
-        
-        # التحقق من النجاح
-        try:
-            # إذا ظهر رابط المقال المنشور
-            success_indicator = driver.find_element(By.XPATH, "//a[contains(@href, '@')]")
-            if success_indicator:
-                print("    ✅ تم التحقق من نجاح النشر!")
-        except:
-            pass
+        print("--- 9. انتظار معالجة النشر...")
+        time.sleep(20)
         
         add_posted_link(post_to_publish.link)
         print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
