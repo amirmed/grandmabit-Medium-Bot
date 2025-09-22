@@ -13,23 +13,23 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة v30 Universal ---
+# --- برمجة ahmed si - النسخة v31 Direct Publish ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
 SITE_DOMAIN = f"{SITE_NAME}.com"
 RSS_URL = f"https://{SITE_DOMAIN}/feed"
 
-# مسارات الصور المحتملة (أضف مسار موقعك إن كان مختلفاً)
+# مسارات الصور المحتملة
 IMAGE_PATHS = [
-    "/assets/images/",  # fastyummyfood
-    "/wp-content/uploads/",  # WordPress sites
-    "/images/",  # مواقع عامة
-    "/media/",  # Django sites
-    "/static/images/",  # مواقع static
-    "/content/images/",  # Ghost CMS
-    f"/{SITE_NAME}",  # مسار خاص بالموقع
-    "/recipes/images/",  # مواقع الوصفات
+    "/assets/images/",
+    "/wp-content/uploads/",
+    "/images/",
+    "/media/",
+    "/static/images/",
+    "/content/images/",
+    f"/{SITE_NAME}",
+    "/recipes/images/",
 ]
 # ==========================================
 
@@ -72,13 +72,11 @@ def extract_image_url_from_entry(entry):
 
 def is_valid_article_image(url):
     """التحقق من أن الصورة صالحة للمقال"""
-    # استبعاد الصور الصغيرة جداً
     small_sizes = ['16', '32', '48', '64', '96', '128', '150', '160']
     for size in small_sizes:
         if f'width={size}' in url or f'w={size}' in url or f'-{size}x' in url or f'_{size}x' in url:
             return False
     
-    # استبعاد الصور غير المرغوبة
     exclude_keywords = [
         'avatar', 'author', 'profile', 'logo', 'icon', 
         'thumbnail', 'thumb', 'placeholder', 'blank',
@@ -88,32 +86,13 @@ def is_valid_article_image(url):
     if any(keyword in url_lower for keyword in exclude_keywords):
         return False
     
-    # استبعاد صور tracking وanalytics
     if any(x in url_lower for x in ['pixel', 'tracking', 'analytics', '.gif']):
         return False
     
-    # قبول فقط صيغ الصور المعروفة
     valid_extensions = ['.jpg', '.jpeg', '.png', '.webp']
     has_valid_extension = any(ext in url_lower for ext in valid_extensions)
     
     return has_valid_extension
-
-def is_recipe_image(url, alt_text=""):
-    """التحقق من أن الصورة متعلقة بالوصفة"""
-    # إذا كان في المسار كلمات متعلقة بالطعام
-    food_keywords = ['recipe', 'food', 'dish', 'meal', 'cook', 'ingredient']
-    if any(keyword in url.lower() or keyword in alt_text.lower() for keyword in food_keywords):
-        return True
-    
-    # إذا كان حجم الصورة مناسب (ليس صغير جداً)
-    if any(path in url for path in IMAGE_PATHS):
-        return True
-    
-    # إذا كان من نفس الدومين
-    if SITE_DOMAIN in url:
-        return True
-    
-    return False
 
 def scrape_article_images_with_alt(article_url):
     """كشط الصور مع نصوص alt من داخل المقال"""
@@ -126,7 +105,6 @@ def scrape_article_images_with_alt(article_url):
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    # إضافة user agent حقيقي
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     
     service = ChromeService(ChromeDriverManager().install())
@@ -145,13 +123,10 @@ def scrape_article_images_with_alt(article_url):
     try:
         print("    ⏳ تحميل الصفحة...")
         driver.get(article_url)
-        
-        # انتظار أطول لتحميل الصور
         time.sleep(3)
         
         wait = WebDriverWait(driver, 10)
         
-        # البحث عن منطقة المحتوى
         article_element = None
         selectors = [
             "article.article",
@@ -176,7 +151,6 @@ def scrape_article_images_with_alt(article_url):
             print("    ⚠️ لم أجد منطقة المحتوى، سأبحث في الصفحة كاملة")
             article_element = driver.find_element(By.TAG_NAME, "body")
         
-        # التمرير لتحميل كل الصور
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight/4);")
         time.sleep(1)
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
@@ -188,17 +162,11 @@ def scrape_article_images_with_alt(article_url):
         
         print("    🔎 البحث عن الصور...")
         
-        # البحث عن جميع الصور
-        all_images = driver.find_elements(By.TAG_NAME, "img")
-        print(f"    📊 عدد الصور الكلي في الصفحة: {len(all_images)}")
-        
-        # فقط الصور داخل المقال
         img_elements = article_element.find_elements(By.TAG_NAME, "img")
         print(f"    📊 عدد الصور في المقال: {len(img_elements)}")
         
         for img in img_elements:
             try:
-                # جرب كل المصادر الممكنة
                 src = None
                 src_attrs = ['src', 'data-src', 'data-lazy-src', 'data-original', 'data-srcset']
                 
@@ -207,44 +175,29 @@ def scrape_article_images_with_alt(article_url):
                     if src:
                         break
                 
-                # إذا لم نجد، جرب JavaScript
                 if not src:
                     src = driver.execute_script("return arguments[0].currentSrc || arguments[0].src;", img)
                 
                 if not src:
                     continue
                 
-                # إذا كان srcset، خذ أكبر صورة
-                if ' ' in src and ',' in src:  # srcset format
+                if ' ' in src and ',' in src:
                     srcset_parts = src.split(',')
-                    # خذ آخر واحد (عادة الأكبر)
                     src = srcset_parts[-1].strip().split(' ')[0]
                 
-                # الحصول على alt text
                 alt_text = img.get_attribute("alt") or img.get_attribute("title") or ""
                 
-                # الحصول على حجم الصورة
-                width = img.get_attribute("width") or driver.execute_script("return arguments[0].naturalWidth;", img)
-                height = img.get_attribute("height") or driver.execute_script("return arguments[0].naturalHeight;", img)
-                
-                print(f"    🔍 فحص صورة: {src[:50]}... | Alt: {alt_text[:30]}... | Size: {width}x{height}")
-                
-                # تنظيف الرابط
                 clean_url = src
                 
-                # إزالة معاملات CDN
                 if "/cdn-cgi/image/" in clean_url:
-                    # استخراج الرابط الأصلي
                     match = re.search(r'/(wp-content/uploads/[^"]+)', clean_url)
                     if match:
                         clean_url = f"https://{SITE_DOMAIN}" + match.group(1)
                     else:
-                        # جرب استخراج أي مسار
                         match = re.search(r'/([^/]+\.(jpg|jpeg|png|webp))', clean_url, re.IGNORECASE)
                         if match:
                             clean_url = f"https://{SITE_DOMAIN}/wp-content/uploads/" + match.group(1)
                 
-                # تحويل إلى رابط مطلق
                 if not clean_url.startswith("http"):
                     if clean_url.startswith("//"):
                         clean_url = "https:" + clean_url
@@ -252,18 +205,7 @@ def scrape_article_images_with_alt(article_url):
                         from urllib.parse import urljoin
                         clean_url = urljoin(article_url, clean_url)
                 
-                # التحقق من صحة الصورة
                 if is_valid_article_image(clean_url):
-                    # تحقق إضافي: هل الصورة كبيرة بما يكفي؟
-                    try:
-                        width_int = int(width) if width else 0
-                        if width_int < 200 and width_int > 0:  # صغيرة جداً
-                            print(f"    ❌ صورة صغيرة جداً: {width_int}px")
-                            continue
-                    except:
-                        pass
-                    
-                    # تجنب التكرار
                     image_exists = False
                     for img_data in images_data:
                         if img_data['url'] == clean_url:
@@ -276,42 +218,11 @@ def scrape_article_images_with_alt(article_url):
                             'alt': alt_text
                         })
                         print(f"    ✅ تمت إضافة الصورة: {clean_url[:60]}...")
-                else:
-                    print(f"    ❌ صورة مرفوضة: {clean_url[:60]}...")
                         
             except Exception as e:
-                print(f"    ⚠️ خطأ في معالجة صورة: {e}")
                 continue
         
-        # إذا لم نجد صور، ابحث في picture elements
-        if len(images_data) < 2:
-            print("    🔎 البحث في عناصر picture...")
-            picture_elements = article_element.find_elements(By.TAG_NAME, "picture")
-            for picture in picture_elements:
-                try:
-                    sources = picture.find_elements(By.TAG_NAME, "source")
-                    for source in sources:
-                        srcset = source.get_attribute("srcset")
-                        if srcset:
-                            # خذ أكبر صورة من srcset
-                            urls = re.findall(r'(https?://[^\s]+)', srcset)
-                            if urls:
-                                url = urls[-1]  # آخر واحد عادة الأكبر
-                                if is_valid_article_image(url):
-                                    images_data.append({
-                                        'url': url,
-                                        'alt': 'Recipe image'
-                                    })
-                                    print(f"    ✅ صورة من picture: {url[:60]}...")
-                                    break
-                except:
-                    continue
-        
         print(f"--- ✅ تم العثور على {len(images_data)} صورة صالحة من المقال")
-        
-        # طباعة تفاصيل الصور المكتشفة
-        for i, img in enumerate(images_data, 1):
-            print(f"    📸 الصورة {i}: {img['url']}")
         
     except Exception as e:
         print(f"--- ⚠️ خطأ في Selenium: {e}")
@@ -320,7 +231,6 @@ def scrape_article_images_with_alt(article_url):
     
     return images_data
 
-# بقية الكود يبقى كما هو...
 def get_best_images_for_article(article_url, rss_image=None):
     """الحصول على أفضل صورتين مع alt text"""
     scraped_images_data = scrape_article_images_with_alt(article_url)
@@ -468,7 +378,6 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     
     print("--- 🎨 إعداد المحتوى النهائي مع الصور وCTAs...")
     
-    # إعداد HTML للصورة الأولى
     if image1_data:
         alt1 = image1_data['alt'] or "Recipe preparation"
         full_alt1 = f"{alt1} | {SITE_DOMAIN}" if alt1 else f"Recipe image | {SITE_DOMAIN}"
@@ -486,10 +395,8 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     else:
         image1_with_caption = ""
     
-    # إعداد CTA المنتصف
     mid_cta = create_mid_cta(original_link, original_title)
     
-    # إعداد HTML للصورة الثانية
     if image2_data:
         alt2 = image2_data['alt'] or "Final dish"
         full_alt2 = f"{alt2} | {SITE_DOMAIN}" if alt2 else f"Recipe result | {SITE_DOMAIN}"
@@ -509,18 +416,16 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     else:
         image2_with_caption = ""
     
-    # استبدال العلامات
     content_html = content_html.replace("INSERT_IMAGE_1_HERE", image1_with_caption)
     content_html = content_html.replace("INSERT_MID_CTA_HERE", mid_cta)
     content_html = content_html.replace("INSERT_IMAGE_2_HERE", image2_with_caption)
     
-    # إضافة CTA النهائي
     final_cta = create_final_cta(original_link)
     
     return content_html + final_cta
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v30 Universal لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v31 Direct Publish لموقع {SITE_DOMAIN} ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -537,12 +442,8 @@ def main():
     
     if image1_data:
         print(f"--- 🖼️ الصورة الأولى: {image1_data['url'][:60]}...")
-        if image1_data['alt']:
-            print(f"      Alt: {image1_data['alt'][:50]}...")
     if image2_data:
         print(f"--- 🖼️ الصورة الثانية: {image2_data['url'][:60]}...")
-        if image2_data['alt']:
-            print(f"      Alt: {image2_data['alt'][:50]}...")
     
     if not image1_data:
         print("--- ⚠️ لم يتم العثور على صور صالحة للمقال!")
@@ -570,7 +471,7 @@ def main():
         full_html_content = prepare_html_with_multiple_images_and_ctas(
             ai_content, image1_data, image2_data, original_link, original_title, caption1, caption2
         )
-        print("--- ✅ تم إعداد المحتوى المُحسّن مع الصور وDouble CTA.")
+        print("--- ✅ تم إعداد المحتوى المُحسّن.")
     else:
         print("--- ⚠️ سيتم استخدام المحتوى الأصلي.")
         final_title = original_title
@@ -594,7 +495,7 @@ def main():
             image2_html = ""
             caption2 = ""
         
-        final_cta = f'<br><p><strong>Get the complete recipe with all ingredients and instructions at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</strong></p>'
+        final_cta = f'<br><p><strong>Get the complete recipe at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</strong></p>'
         
         full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
 
@@ -641,7 +542,7 @@ def main():
         title_field.click()
         title_field.send_keys(final_title)
         
-        print("--- 5. إدراج المحتوى مع الصور وCTAs...")
+        print("--- 5. إدراج المحتوى...")
         story_field = wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')
         ))
@@ -659,11 +560,37 @@ def main():
         print("--- ⏳ انتظار رفع الصور...")
         time.sleep(12)
         
-        print("--- 6. بدء النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
-        ))
-        publish_button.click()
+        print("--- 6. بدء عملية النشر...")
+        # البحث عن زر Ready to publish? أو Publish
+        publish_selectors = [
+            'button[data-action="show-prepublish"]',
+            'button:contains("Ready to publish")',
+            'button:contains("Publish")',
+            'span:contains("Ready to publish")',
+            'button[aria-label*="publish"]'
+        ]
+        
+        publish_button = None
+        for selector in publish_selectors:
+            try:
+                if ':contains' in selector:
+                    # استخدام XPath للبحث عن النص
+                    xpath = f"//button[contains(., '{selector.split('\"')[1]}')]"
+                    publish_button = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
+                else:
+                    publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                print(f"    ✓ تم العثور على زر النشر: {selector}")
+                break
+            except:
+                continue
+        
+        if publish_button:
+            publish_button.click()
+        else:
+            print("!!! لم أجد زر النشر، أحاول طريقة أخرى...")
+            driver.execute_script("document.querySelector('button[data-action=\"show-prepublish\"]').click()")
+        
+        time.sleep(3)
         
         print("--- 7. إضافة الوسوم...")
         if ai_tags:
@@ -682,15 +609,98 @@ def main():
             except:
                 print("--- تخطي الوسوم")
         
-        print("--- 8. النشر النهائي...")
-        publish_now_button = wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
-        ))
-        time.sleep(2)
-        driver.execute_script("arguments[0].click();", publish_now_button)
+        # --- الخطوة الحرجة: اختيار النشر المباشر وليس المسودة ---
+        print("--- 8. اختيار النشر المباشر (وليس المسودة)...")
         
-        print("--- 9. انتظار معالجة النشر...")
-        time.sleep(15)
+        # البحث عن خيار "Publish now" إن وجد
+        try:
+            # محاولة العثور على radio button أو checkbox للنشر الفوري
+            publish_now_radio = driver.find_element(By.XPATH, "//input[@type='radio' and @value='now']")
+            if publish_now_radio and not publish_now_radio.is_selected():
+                publish_now_radio.click()
+                print("    ✓ تم اختيار النشر الفوري")
+                time.sleep(1)
+        except:
+            pass
+        
+        # البحث عن "Schedule" أو "Publish now" dropdown
+        try:
+            schedule_dropdown = driver.find_element(By.XPATH, "//button[contains(., 'Schedule') or contains(., 'When')]")
+            schedule_dropdown.click()
+            time.sleep(1)
+            
+            # اختيار "Publish now"
+            publish_now_option = driver.find_element(By.XPATH, "//div[contains(., 'Publish now') or contains(., 'Now')]")
+            publish_now_option.click()
+            print("    ✓ تم اختيار Publish now من القائمة")
+            time.sleep(1)
+        except:
+            pass
+        
+        print("--- 9. النشر النهائي...")
+        
+        # البحث عن زر التأكيد النهائي
+        confirm_selectors = [
+            'button[data-testid="publishConfirmButton"]',
+            'button[data-action="publish"]',
+            'button:contains("Publish now")',
+            'button:contains("Publish")',
+            'button[aria-label*="Publish"]'
+        ]
+        
+        publish_now_button = None
+        for selector in confirm_selectors:
+            try:
+                if ':contains' in selector:
+                    xpath = f"//button[contains(., '{selector.split('\"')[1]}')]"
+                    buttons = driver.find_elements(By.XPATH, xpath)
+                    # اختر آخر زر (عادة زر التأكيد النهائي)
+                    if buttons:
+                        publish_now_button = buttons[-1]
+                        if publish_now_button.is_enabled():
+                            print(f"    ✓ تم العثور على زر النشر النهائي: {selector}")
+                            break
+                else:
+                    publish_now_button = driver.find_element(By.CSS_SELECTOR, selector)
+                    if publish_now_button and publish_now_button.is_enabled():
+                        print(f"    ✓ تم العثور على زر النشر النهائي: {selector}")
+                        break
+            except:
+                continue
+        
+        if publish_now_button:
+            time.sleep(2)
+            # استخدام JavaScript للضغط لضمان النجاح
+            driver.execute_script("arguments[0].scrollIntoView(true);", publish_now_button)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", publish_now_button)
+            print("    ✅ تم الضغط على زر النشر النهائي")
+        else:
+            print("!!! تحذير: لم أجد زر النشر النهائي، أحاول الطريقة الافتراضية...")
+            # محاولة أخيرة
+            driver.execute_script("""
+                var buttons = document.querySelectorAll('button');
+                for(var i=0; i<buttons.length; i++) {
+                    if(buttons[i].textContent.includes('Publish') && 
+                       !buttons[i].textContent.includes('Ready') &&
+                       buttons[i].offsetParent !== null) {
+                        buttons[i].click();
+                        break;
+                    }
+                }
+            """)
+        
+        print("--- 10. انتظار معالجة النشر...")
+        time.sleep(20)  # انتظار أطول للتأكد من النشر
+        
+        # التحقق من النجاح
+        try:
+            # إذا ظهر رابط المقال المنشور
+            success_indicator = driver.find_element(By.XPATH, "//a[contains(@href, '@')]")
+            if success_indicator:
+                print("    ✅ تم التحقق من نجاح النشر!")
+        except:
+            pass
         
         add_posted_link(post_to_publish.link)
         print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
