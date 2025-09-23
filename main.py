@@ -622,7 +622,7 @@ def main():
         print("--- ⏳ انتظار رفع الصور...")
         time.sleep(12)
         
-             print("--- 6. بدء النشر...")
+        print("--- 6. بدء النشر...")
         publish_button = wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
         ))
