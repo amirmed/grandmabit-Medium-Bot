@@ -2,7 +2,6 @@ name: Medium Auto Poster
 
 on:
   schedule:
-    
     - cron: "0 16,0,3 * * *"
   workflow_dispatch:
 
@@ -15,13 +14,13 @@ jobs:
 
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Chrome
         uses: browser-actions/setup-chrome@v1
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -34,7 +33,19 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           MEDIUM_SID_COOKIE: ${{ secrets.MEDIUM_SID_COOKIE }}
           MEDIUM_UID_COOKIE: ${{ secrets.MEDIUM_UID_COOKIE }}
+          TEST_MODE: "false"  # غيّر إلى "true" للاختبار بدون نشر
         run: python main.py
+        
+      - name: Upload Screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-${{ github.run_number }}
+          path: |
+            *.png
+            *.html
+          retention-days: 7
+          if-no-files-found: ignore
         
       - name: Commit and Push Log File
         run: |
