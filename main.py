@@ -12,7 +12,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # --- برمجة ahmed si - النسخة v32 Final Fixed & Robust ---
 
@@ -36,38 +35,6 @@ IMAGE_PATHS = [
 
 POSTED_LINKS_FILE = "posted_links.txt"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# ======================= بداية التعديل: إضافة شرط انتظار مخصص =======================
-class button_is_truly_ready(object):
-    """
-    شرط انتظار مخصص ينتظر حتى يصبح الزر جاهزًا تمامًا للنقر.
-    يتحقق من أن الزر موجود، مرئي، مفعل، ولا يحتوي على أي سمات
-    أو خصائص تشير إلى أنه لا يزال غير نشط أو قيد المعالجة.
-    """
-    def __init__(self, locator):
-        self.locator = locator
-
-    def __call__(self, driver):
-        try:
-            element = driver.find_element(*self.locator)
-            # تحقق من الشروط القياسية أولاً
-            if not (element and element.is_displayed() and element.is_enabled()):
-                return False
-
-            # تحقق من عدم وجود السمة 'disabled'
-            if element.get_attribute('disabled') is not None:
-                return False
-                
-            # تحقق من عدم وجود السمة 'aria-disabled="true"'
-            if element.get_attribute('aria-disabled') == 'true':
-                return False
-                
-            # إذا مرت كل الاختبارات، فالزر جاهز
-            return element
-        except (NoSuchElementException, TimeoutException):
-            return False
-# ======================= نهاية التعديل: إضافة شرط انتظار مخصص =======================
-
 
 def get_posted_links():
     if not os.path.exists(POSTED_LINKS_FILE): return set()
@@ -168,7 +135,7 @@ def scrape_article_images_with_alt(article_url):
     images_data = []
     
     try:
-        print("    ⏳ تحميل الصفحة...")
+        print("     ⏳ تحميل الصفحة...")
         driver.get(article_url)
         time.sleep(3)
         
@@ -189,13 +156,13 @@ def scrape_article_images_with_alt(article_url):
         for selector in selectors:
             try:
                 article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
-                print(f"    ✓ تم العثور على المحتوى في: {selector}")
+                print(f"     ✓ تم العثور على المحتوى في: {selector}")
                 break
             except:
                 continue
         
         if not article_element:
-            print("    ⚠️ لم أجد منطقة المحتوى، سأبحث في الصفحة كاملة")
+            print("     ⚠️ لم أجد منطقة المحتوى، سأبحث في الصفحة كاملة")
             article_element = driver.find_element(By.TAG_NAME, "body")
         
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight/4);")
@@ -207,13 +174,13 @@ def scrape_article_images_with_alt(article_url):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
         
-        print("    🔎 البحث عن الصور...")
+        print("     🔎 البحث عن الصور...")
         
         all_images = driver.find_elements(By.TAG_NAME, "img")
-        print(f"    📊 عدد الصور الكلي في الصفحة: {len(all_images)}")
+        print(f"     📊 عدد الصور الكلي في الصفحة: {len(all_images)}")
         
         img_elements = article_element.find_elements(By.TAG_NAME, "img")
-        print(f"    📊 عدد الصور في المقال: {len(img_elements)}")
+        print(f"     📊 عدد الصور في المقال: {len(img_elements)}")
         
         for img in img_elements:
             try:
@@ -240,7 +207,7 @@ def scrape_article_images_with_alt(article_url):
                 width = img.get_attribute("width") or driver.execute_script("return arguments[0].naturalWidth;", img)
                 height = img.get_attribute("height") or driver.execute_script("return arguments[0].naturalHeight;", img)
                 
-                print(f"    🔍 فحص صورة: {src[:50]}... | Alt: {alt_text[:30]}... | Size: {width}x{height}")
+                print(f"     🔍 فحص صورة: {src[:50]}... | Alt: {alt_text[:30]}... | Size: {width}x{height}")
                 
                 clean_url = src
                 
@@ -264,7 +231,7 @@ def scrape_article_images_with_alt(article_url):
                     try:
                         width_int = int(width) if width else 0
                         if width_int < 200 and width_int > 0:
-                            print(f"    ❌ صورة صغيرة جداً: {width_int}px")
+                            print(f"     ❌ صورة صغيرة جداً: {width_int}px")
                             continue
                     except:
                         pass
@@ -280,16 +247,16 @@ def scrape_article_images_with_alt(article_url):
                             'url': clean_url,
                             'alt': alt_text
                         })
-                        print(f"    ✅ تمت إضافة الصورة: {clean_url[:60]}...")
+                        print(f"     ✅ تمت إضافة الصورة: {clean_url[:60]}...")
                 else:
-                    print(f"    ❌ صورة مرفوضة: {clean_url[:60]}...")
-                            
+                    print(f"     ❌ صورة مرفوضة: {clean_url[:60]}...")
+                        
             except Exception as e:
-                print(f"    ⚠️ خطأ في معالجة صورة: {e}")
+                print(f"     ⚠️ خطأ في معالجة صورة: {e}")
                 continue
         
         if len(images_data) < 2:
-            print("    🔎 البحث في عناصر picture...")
+            print("     🔎 البحث في عناصر picture...")
             picture_elements = article_element.find_elements(By.TAG_NAME, "picture")
             for picture in picture_elements:
                 try:
@@ -305,7 +272,7 @@ def scrape_article_images_with_alt(article_url):
                                         'url': url,
                                         'alt': 'Recipe image'
                                     })
-                                    print(f"    ✅ صورة من picture: {url[:60]}...")
+                                    print(f"     ✅ صورة من picture: {url[:60]}...")
                                     break
                 except:
                     continue
@@ -313,7 +280,7 @@ def scrape_article_images_with_alt(article_url):
         print(f"--- ✅ تم العثور على {len(images_data)} صورة صالحة من المقال")
         
         for i, img in enumerate(images_data, 1):
-            print(f"    📸 الصورة {i}: {img['url']}")
+            print(f"     📸 الصورة {i}: {img['url']}")
         
     except Exception as e:
         print(f"--- ⚠️ خطأ في Selenium: {e}")
@@ -680,33 +647,37 @@ def main():
             except Exception as e:
                 print(f"--- ⚠️ خطأ أثناء إضافة الوسوم (سيتم التخطي): {e}")
         
-        # ======================= بداية التعديل: استخدام شرط الانتظار المخصص =======================
+        # === التعديل الرئيسي هنا: طريقة جديدة وموثوقة للنشر النهائي ===
         
-        print("--- 9. محاولة النشر الفوري (باستخدام شرط انتظار مخصص)...")
+        print("--- 9. محاولة النشر الفوري (الطريقة الجديدة)...")
         try:
-            final_publish_button_selector = (By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
+            # ننتظر حتى يصبح زر النشر النهائي قابلاً للنقر عليه
+            final_publish_button_selector = 'button[data-testid="publishConfirmButton"]'
             
-            print(f"    ⏳ انتظار الزر النهائي ليكون جاهزًا تمامًا...")
+            print(f"     ⏳ انتظار الزر النهائي: {final_publish_button_selector}")
             
-            # استخدام شرط الانتظار المخصص الجديد بدلاً من element_to_be_clickable
             final_publish_button = WebDriverWait(driver, 20).until(
-                button_is_truly_ready(final_publish_button_selector)
+                EC.element_to_be_clickable((By.CSS_SELECTOR, final_publish_button_selector))
             )
             
-            print("    ✅ تم العثور على زر النشر النهائي وهو جاهز تمامًا.")
-            
-            # نستخدم نقرة JavaScript لضمان التنفيذ وتجنب أي عناصر متراكبة
+            print("     ✅ تم العثور على زر النشر النهائي وهو قابل للنقر.")
+
+            # ======>  ✨✨✨  هذا هو الإصلاح الرئيسي  ✨✨✨ <======
+            # نضيف فترة انتظار قصيرة (3 ثوانٍ) للسماح لواجهة Medium بمعالجة الوسوم
+            # وتجهيز حالة النشر النهائية بشكل صحيح. هذا يمنع النشر كمسودة.
+            print("     ⏳ انتظار استباقي (6 ثوانٍ) لضمان جهوزية الموقع...")
+            time.sleep(6)
+            # =========================================================
+
+            # نستخدم نقرة JavaScript لضمان التنفيذ
             driver.execute_script("arguments[0].click();", final_publish_button)
             
-            print("    🖱️ تم الضغط على زر النشر النهائي بنجاح عبر JavaScript.")
+            print("     🖱️ تم الضغط على زر النشر النهائي بنجاح عبر JavaScript.")
 
-        except TimeoutException:
-            print(f"    ❌ فشل الانتظار: لم يصبح زر النشر جاهزًا في الوقت المحدد.")
-            driver.save_screenshot("final_publish_error.png")
-            raise  # نوقف التنفيذ لأن الخطوة فشلت
         except Exception as e:
-            print(f"    ❌ فشلت طريقة النشر الموثوقة. خطأ: {e}")
+            print(f"     ❌ فشلت الطريقة الجديدة والموثوقة للنشر. خطأ: {e}")
             driver.save_screenshot("final_publish_error.png")
+            # إذا فشلت الطريقة الجديدة، يمكننا رفع الخطأ لإيقاف التنفيذ
             raise e
 
         # ======================= نهاية التعديل =======================
@@ -715,7 +686,7 @@ def main():
         time.sleep(15) # انتظار كافي للتأكد من إتمام العملية
         
         add_posted_link(post_to_publish.link)
-        print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
+        print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على Medium! 🎉🎉🎉")
         
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء عملية النشر: {e}")
