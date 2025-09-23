@@ -11,9 +11,10 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains # <-- استيراد الأداة الجديدة
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة v33 Final Robust ---
+# --- برمجة ahmed si - النسخة v34 Human Simulation ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -483,7 +484,7 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     return content_html + final_cta
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v33 لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v34 لموقع {SITE_DOMAIN} ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -646,26 +647,24 @@ def main():
             except Exception as e:
                 print(f"--- ⚠️ خطأ أثناء إضافة الوسوم (سيتم التخطي): {e}")
         
-        # === التعديل الرئيسي هنا: v33 ===
+        # === التعديل الرئيسي هنا: v34 ===
         
         print("--- 8. التأكد من خيارات النشر الإضافية...")
         try:
-            # البحث عن مربع اختيار "Send email to subscribers"
             email_checkbox_selector = "input[type='checkbox']"
             email_checkbox = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, email_checkbox_selector))
             )
             if not email_checkbox.is_selected():
                 print("    ✅ تم العثور على مربع إرسال الإيميل وهو غير محدد. سيتم تحديده الآن.")
-                # استخدام JavaScript للنقر لضمان التنفيذ
                 driver.execute_script("arguments[0].click();", email_checkbox)
-                time.sleep(1) # انتظار بسيط بعد النقر
+                time.sleep(1)
             else:
                 print("    ℹ️ مربع إرسال الإيميل محدد بالفعل.")
         except Exception:
             print("    ℹ️ لم يتم العثور على مربع اختيار إرسال الإيميل (قد لا يكون موجوداً).")
 
-        print("--- 9. محاولة النشر الفوري (طريقة محسّنة)...")
+        print("--- 9. محاولة النشر الفوري (محاكاة السلوك البشري)...")
         try:
             final_publish_button_selector = 'button[data-testid="publishConfirmButton"]'
             print(f"    ⏳ انتظار الزر النهائي: {final_publish_button_selector}")
@@ -674,21 +673,29 @@ def main():
                 EC.element_to_be_clickable((By.CSS_SELECTOR, final_publish_button_selector))
             )
             
-            print("    ✅ تم العثور على زر النشر النهائي. محاولة النقر بطريقة Selenium العادية...")
-            final_publish_button.click()
-            print("    🖱️ تمت محاولة النقر بنجاح.")
+            # خطوة تشخيصية حاسمة: حفظ HTML الخاص بالنافذة قبل النقر
+            try:
+                dialog_element = driver.find_element(By.CSS_SELECTOR, "div[role='dialog']")
+                with open("publish_dialog_source.html", "w", encoding="utf-8") as f:
+                    f.write(dialog_element.get_attribute('outerHTML'))
+                print("    💾 تم حفظ HTML الخاص بنافذة النشر في 'publish_dialog_source.html' للتشخيص.")
+            except:
+                print("    ⚠️ لم يتم العثور على نافذة الحوار (dialog) لحفظ HTML.")
+
+            print("    ✅ تم العثور على زر النشر. بدء محاكاة النقر البشري...")
+            
+            # استخدام ActionChains لمحاكاة سلوك بشري أكثر واقعية
+            actions = ActionChains(driver)
+            actions.move_to_element(final_publish_button) # 1. حرك الماوس فوق الزر
+            actions.pause(0.5) # 2. توقف للحظة
+            actions.click(final_publish_button) # 3. انقر
+            actions.perform() # 4. نفذ السلسلة
+            
+            print("    🖱️ تمت محاولة النقر بنجاح باستخدام ActionChains.")
 
         except Exception as e:
-            print(f"    ⚠️ فشلت نقرة Selenium العادية. خطأ: {e}")
-            print("    ↪️ المحاولة مجدداً باستخدام نقرة JavaScript كخطة بديلة...")
-            try:
-                # إعادة البحث عن العنصر قبل النقر عليه بـ JS
-                final_publish_button = driver.find_element(By.CSS_SELECTOR, final_publish_button_selector)
-                driver.execute_script("arguments[0].click();", final_publish_button)
-                print("    🖱️ تم الضغط على زر النشر النهائي بنجاح عبر JavaScript.")
-            except Exception as js_e:
-                print(f"    ❌ فشلت كلتا محاولتي النقر. خطأ JS: {js_e}")
-                raise js_e # رفع الخطأ لإيقاف التنفيذ
+            print(f"    ❌ فشلت محاولة النقر المتقدمة. خطأ: {e}")
+            raise e
 
         # ======================= نهاية التعديل =======================
         
