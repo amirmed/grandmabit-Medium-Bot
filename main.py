@@ -658,80 +658,80 @@ def main():
         
         print("--- ⏳ انتظار رفع الصور...")
         time.sleep(12)
-        
+        driver.save_screenshot("before_publish.png")
+
         print("--- 6. بدء النشر...")
-        publish_button = wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
-        ))
-        publish_button.click()
-        
-        print("--- 7. إضافة الوسوم...")
-        if ai_tags:
-            try:
-                tags_input = wait.until(EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
-                ))
-                tags_input.click()
-                
-                for tag in ai_tags[:5]:
-                    tags_input.send_keys(tag)
-                    time.sleep(0.5)
-                    tags_input.send_keys(Keys.ENTER)
-                    time.sleep(1)
-                print(f"--- تمت إضافة الوسوم: {', '.join(ai_tags[:5])}")
-            except:
-                print("--- تخطي الوسوم")
-        
-       print("--- 8. النشر النهائي...")
+publish_button = wait.until(EC.element_to_be_clickable(
+    (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
+))
+publish_button.click()
 
-# أخذ screenshot للتشخيص
-driver.save_screenshot("before_publish.png")
-print("    📸 تم حفظ screenshot: before_publish.png")
-
-# انتظار قليل للتأكد من تحميل كل الخيارات
+# انتظار لتحميل صفحة النشر
 time.sleep(3)
 
-# طباعة كل الأزرار المتاحة للتشخيص
-all_buttons = driver.find_elements(By.TAG_NAME, "button")
-print(f"    🔍 عدد الأزرار المتاحة: {len(all_buttons)}")
-for i, btn in enumerate(all_buttons):
-    btn_text = btn.text
-    if btn_text:
-        print(f"    Button {i}: {btn_text[:50]}")
+print("--- 7. إضافة الوسوم...")
+if ai_tags:
+    try:
+        tags_input = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
+        ))
+        tags_input.click()
+        
+        for tag in ai_tags[:5]:
+            tags_input.send_keys(tag)
+            time.sleep(0.5)
+            tags_input.send_keys(Keys.ENTER)
+            time.sleep(1)
+        print(f"--- تمت إضافة الوسوم: {', '.join(ai_tags[:5])}")
+    except:
+        print("--- تخطي الوسوم")
+driver.save_screenshot("before_publish.png")
 
-# البحث عن أي عناصر تحتوي على كلمة "draft" أو "schedule"
-draft_elements = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'draft')]")
-schedule_elements = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'schedule')]")
+print("--- 8. البحث عن زر النشر الفوري...")
 
-if draft_elements:
-    print(f"    ⚠️ وجدت {len(draft_elements)} عنصر يحتوي على 'draft'")
-if schedule_elements:
-    print(f"    ⚠️ وجدت {len(schedule_elements)} عنصر يحتوي على 'schedule'")
+# الانتظار قليلاً للتأكد من ظهور الأزرار
+time.sleep(2)
 
-# محاولة الضغط على أي شيء يقول "Publish" وليس "Draft"
+# محاولة النقر على Publish now مباشرة
+publish_success = False
+
+# الطريقة 1: البحث بالنص
 try:
-    # البحث عن الزر الصحيح
+    all_buttons = driver.find_elements(By.TAG_NAME, "button")
     for button in all_buttons:
-        button_text = button.text.lower()
-        # إذا وجدنا زر "Publish now" أو "Publish" فقط (وليس "Save draft")
-        if ('publish' in button_text and 
-            'draft' not in button_text and 
-            'ready' not in button_text and
-            button.is_enabled()):
-            
-            print(f"    🎯 وجدت زر النشر: {button.text}")
+        if "Publish now" in button.text:
+            print(f"    ✓ وجدت زر: {button.text}")
             driver.execute_script("arguments[0].scrollIntoView(true);", button)
             time.sleep(1)
             driver.execute_script("arguments[0].click();", button)
-            print("    ✅ تم الضغط على زر النشر")
+            publish_success = True
+            print("    ✅ تم الضغط على Publish now")
             break
-except:
-    # إذا فشل، استخدم الطريقة الأصلية
-    publish_now_button = wait.until(EC.element_to_be_clickable(
-        (By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
-    ))
-    time.sleep(2)
-    driver.execute_script("arguments[0].click();", publish_now_button)
+except Exception as e:
+    print(f"    ⚠️ محاولة 1 فشلت: {e}")
+
+# الطريقة 2: استخدام data-testid
+if not publish_success:
+    try:
+        publish_now_btn = driver.find_element(By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
+        driver.execute_script("arguments[0].click();", publish_now_btn)
+        publish_success = True
+        print("    ✅ تم الضغط باستخدام testid")
+    except:
+        pass
+
+# الطريقة 3: استخدام data-action
+if not publish_success:
+    try:
+        publish_btn = driver.find_element(By.CSS_SELECTOR, 'button[data-action="publish"]')
+        driver.execute_script("arguments[0].click();", publish_btn)
+        publish_success = True
+        print("    ✅ تم الضغط باستخدام action")
+    except:
+        pass
+
+if not publish_success:
+    print("    ❌ تحذير: قد لا يتم النشر بشكل صحيح!")
         
         print("--- 9. انتظار معالجة النشر...")
         time.sleep(15)
