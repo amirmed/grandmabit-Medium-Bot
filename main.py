@@ -12,14 +12,25 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
-from selenium.webdriver.common.action_chains import ActionChains
 
-# --- برمجة ahmed si - النسخة v31.2 Direct Publish ---
+# --- برمجة ahmed si - النسخة v30 Universal ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
 SITE_DOMAIN = f"{SITE_NAME}.com"
 RSS_URL = f"https://{SITE_DOMAIN}/feed"
+
+# مسارات الصور المحتملة (أضف مسار موقعك إن كان مختلفاً)
+IMAGE_PATHS = [
+    "/assets/images/",  # fastyummyfood
+    "/wp-content/uploads/",  # WordPress sites
+    "/images/",  # مواقع عامة
+    "/media/",  # Django sites
+    "/static/images/",  # مواقع static
+    "/content/images/",  # Ghost CMS
+    f"/{SITE_NAME}",  # مسار خاص بالموقع
+    "/recipes/images/",  # مواقع الوصفات
+]
 # ==========================================
 
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -45,7 +56,7 @@ def get_next_post_to_publish():
     return None
 
 def extract_image_url_from_entry(entry):
-    """أول صورة من الـ RSS كاحتياطي"""
+    """استخراج أول صورة من RSS feed"""
     if hasattr(entry, 'media_content') and entry.media_content:
         for media in entry.media_content:
             if 'url' in media and media.get('medium') == 'image': return media['url']
@@ -60,375 +71,582 @@ def extract_image_url_from_entry(entry):
     return None
 
 def is_valid_article_image(url):
-    """تصفية الصور غير المناسبة"""
+    """التحقق من أن الصورة صالحة للمقال"""
+    # استبعاد الصور الصغيرة جداً
     small_sizes = ['16', '32', '48', '64', '96', '128', '150', '160']
     for size in small_sizes:
         if f'width={size}' in url or f'w={size}' in url or f'-{size}x' in url or f'_{size}x' in url:
             return False
-    exclude_keywords = ['avatar', 'author', 'profile', 'logo', 'icon', 'thumbnail', 'thumb', 'placeholder', 'blank', 'advertising', 'banner', 'badge', 'button', 'pixel', 'tracking', 'analytics']
-    ul = url.lower()
-    if any(k in ul for k in exclude_keywords): return False
-    return any(ext in ul for ext in ['.jpg', '.jpeg', '.png', '.webp'])
+    
+    # استبعاد الصور غير المرغوبة
+    exclude_keywords = [
+        'avatar', 'author', 'profile', 'logo', 'icon', 
+        'thumbnail', 'thumb', 'placeholder', 'blank',
+        'advertising', 'banner', 'badge', 'button'
+    ]
+    url_lower = url.lower()
+    if any(keyword in url_lower for keyword in exclude_keywords):
+        return False
+    
+    # استبعاد صور tracking وanalytics
+    if any(x in url_lower for x in ['pixel', 'tracking', 'analytics', '.gif']):
+        return False
+    
+    # قبول فقط صيغ الصور المعروفة
+    valid_extensions = ['.jpg', '.jpeg', '.png', '.webp']
+    has_valid_extension = any(ext in url_lower for ext in valid_extensions)
+    
+    return has_valid_extension
+
+def is_recipe_image(url, alt_text=""):
+    """التحقق من أن الصورة متعلقة بالوصفة"""
+    # إذا كان في المسار كلمات متعلقة بالطعام
+    food_keywords = ['recipe', 'food', 'dish', 'meal', 'cook', 'ingredient']
+    if any(keyword in url.lower() or keyword in alt_text.lower() for keyword in food_keywords):
+        return True
+    
+    # إذا كان حجم الصورة مناسب (ليس صغير جداً)
+    if any(path in url for path in IMAGE_PATHS):
+        return True
+    
+    # إذا كان من نفس الدومين
+    if SITE_DOMAIN in url:
+        return True
+    
+    return False
 
 def scrape_article_images_with_alt(article_url):
-    """كشط الصور + alt من داخل المقال فقط"""
+    """كشط الصور مع نصوص alt من داخل المقال"""
     print(f"--- 🔍 كشط صور المقال بـ Selenium من: {article_url}")
+    
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    # إضافة user agent حقيقي
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-    stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
-
+    
+    stealth(driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True)
+    
     images_data = []
+    
     try:
+        print("    ⏳ تحميل الصفحة...")
         driver.get(article_url)
+        
+        # انتظار أطول لتحميل الصور
         time.sleep(3)
+        
         wait = WebDriverWait(driver, 10)
-
-        # منطقة المقال
+        
+        # البحث عن منطقة المحتوى
         article_element = None
-        selectors = ["article.article", "article", "div.entry-content", "main", "div.article-content", "div.post-content", "div.content", "div.recipe-content"]
-        for sel in selectors:
+        selectors = [
+            "article.article",
+            "article",
+            "div.article-content",
+            "div.entry-content",
+            "div.post-content",
+            "div.content",
+            "main",
+            "div.recipe-content"
+        ]
+        
+        for selector in selectors:
             try:
-                article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
-                print(f"    ✓ المحتوى: {sel}")
+                article_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                print(f"    ✓ تم العثور على المحتوى في: {selector}")
                 break
             except:
                 continue
+        
         if not article_element:
-            print("    ⚠️ لم أجد article، سأستخدم body")
+            print("    ⚠️ لم أجد منطقة المحتوى، سأبحث في الصفحة كاملة")
             article_element = driver.find_element(By.TAG_NAME, "body")
-
-        # تمرير لتحميل الصور الكسولة
-        for frac in [0.25, 0.5, 0.75, 1.0]:
-            driver.execute_script(f"window.scrollTo(0, document.body.scrollHeight*{frac});")
-            time.sleep(1)
-
-        imgs = article_element.find_elements(By.TAG_NAME, "img")
-        print(f"    📊 صور داخل المقال: {len(imgs)}")
-        for img in imgs:
+        
+        # التمرير لتحميل كل الصور
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/4);")
+        time.sleep(1)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+        time.sleep(1)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight*3/4);")
+        time.sleep(1)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        
+        print("    🔎 البحث عن الصور...")
+        
+        # البحث عن جميع الصور
+        all_images = driver.find_elements(By.TAG_NAME, "img")
+        print(f"    📊 عدد الصور الكلي في الصفحة: {len(all_images)}")
+        
+        # فقط الصور داخل المقال
+        img_elements = article_element.find_elements(By.TAG_NAME, "img")
+        print(f"    📊 عدد الصور في المقال: {len(img_elements)}")
+        
+        for img in img_elements:
             try:
-                src = (img.get_attribute("src") or img.get_attribute("data-src") or img.get_attribute("data-lazy-src") or img.get_attribute("data-original") or "")
+                # جرب كل المصادر الممكنة
+                src = None
+                src_attrs = ['src', 'data-src', 'data-lazy-src', 'data-original', 'data-srcset']
+                
+                for attr in src_attrs:
+                    src = img.get_attribute(attr)
+                    if src:
+                        break
+                
+                # إذا لم نجد، جرب JavaScript
                 if not src:
                     src = driver.execute_script("return arguments[0].currentSrc || arguments[0].src;", img)
-                if not src: continue
-
-                # srcset (خذ الأكبر)
-                if (',' in src and ' ' in src):
-                    src = src.split(',')[-1].strip().split(' ')[0]
-
-                alt = img.get_attribute("alt") or img.get_attribute("title") or ""
+                
+                if not src:
+                    continue
+                
+                # إذا كان srcset، خذ أكبر صورة
+                if ' ' in src and ',' in src:  # srcset format
+                    srcset_parts = src.split(',')
+                    # خذ آخر واحد (عادة الأكبر)
+                    src = srcset_parts[-1].strip().split(' ')[0]
+                
+                # الحصول على alt text
+                alt_text = img.get_attribute("alt") or img.get_attribute("title") or ""
+                
+                # الحصول على حجم الصورة
+                width = img.get_attribute("width") or driver.execute_script("return arguments[0].naturalWidth;", img)
+                height = img.get_attribute("height") or driver.execute_script("return arguments[0].naturalHeight;", img)
+                
+                print(f"    🔍 فحص صورة: {src[:50]}... | Alt: {alt_text[:30]}... | Size: {width}x{height}")
+                
+                # تنظيف الرابط
                 clean_url = src
-
-                # روابط CDN -> استخرج الأصل إن أمكن
+                
+                # إزالة معاملات CDN
                 if "/cdn-cgi/image/" in clean_url:
-                    m = re.search(r'/([^/]+\.(?:jpg|jpeg|png|webp))', clean_url, re.IGNORECASE)
-                    if m:
-                        clean_url = f"https://{SITE_DOMAIN}/{m.group(1)}"
-
-                # نسبي -> مطلق
+                    # استخراج الرابط الأصلي
+                    match = re.search(r'/(wp-content/uploads/[^"]+)', clean_url)
+                    if match:
+                        clean_url = f"https://{SITE_DOMAIN}" + match.group(1)
+                    else:
+                        # جرب استخراج أي مسار
+                        match = re.search(r'/([^/]+\.(jpg|jpeg|png|webp))', clean_url, re.IGNORECASE)
+                        if match:
+                            clean_url = f"https://{SITE_DOMAIN}/wp-content/uploads/" + match.group(1)
+                
+                # تحويل إلى رابط مطلق
                 if not clean_url.startswith("http"):
-                    if clean_url.startswith("//"): clean_url = "https:" + clean_url
+                    if clean_url.startswith("//"):
+                        clean_url = "https:" + clean_url
                     elif clean_url.startswith("/"):
                         from urllib.parse import urljoin
                         clean_url = urljoin(article_url, clean_url)
-
+                
+                # التحقق من صحة الصورة
                 if is_valid_article_image(clean_url):
-                    if clean_url not in [d['url'] for d in images_data]:
-                        images_data.append({'url': clean_url, 'alt': alt})
-                        print(f"    ✅ صورة: {clean_url[:80]} | alt: {alt[:40]}")
-            except:
+                    # تحقق إضافي: هل الصورة كبيرة بما يكفي؟
+                    try:
+                        width_int = int(width) if width else 0
+                        if width_int < 200 and width_int > 0:  # صغيرة جداً
+                            print(f"    ❌ صورة صغيرة جداً: {width_int}px")
+                            continue
+                    except:
+                        pass
+                    
+                    # تجنب التكرار
+                    image_exists = False
+                    for img_data in images_data:
+                        if img_data['url'] == clean_url:
+                            image_exists = True
+                            break
+                    
+                    if not image_exists:
+                        images_data.append({
+                            'url': clean_url,
+                            'alt': alt_text
+                        })
+                        print(f"    ✅ تمت إضافة الصورة: {clean_url[:60]}...")
+                else:
+                    print(f"    ❌ صورة مرفوضة: {clean_url[:60]}...")
+                        
+            except Exception as e:
+                print(f"    ⚠️ خطأ في معالجة صورة: {e}")
                 continue
+        
+        # إذا لم نجد صور، ابحث في picture elements
+        if len(images_data) < 2:
+            print("    🔎 البحث في عناصر picture...")
+            picture_elements = article_element.find_elements(By.TAG_NAME, "picture")
+            for picture in picture_elements:
+                try:
+                    sources = picture.find_elements(By.TAG_NAME, "source")
+                    for source in sources:
+                        srcset = source.get_attribute("srcset")
+                        if srcset:
+                            # خذ أكبر صورة من srcset
+                            urls = re.findall(r'(https?://[^\s]+)', srcset)
+                            if urls:
+                                url = urls[-1]  # آخر واحد عادة الأكبر
+                                if is_valid_article_image(url):
+                                    images_data.append({
+                                        'url': url,
+                                        'alt': 'Recipe image'
+                                    })
+                                    print(f"    ✅ صورة من picture: {url[:60]}...")
+                                    break
+                except:
+                    continue
+        
+        print(f"--- ✅ تم العثور على {len(images_data)} صورة صالحة من المقال")
+        
+        # طباعة تفاصيل الصور المكتشفة
+        for i, img in enumerate(images_data, 1):
+            print(f"    📸 الصورة {i}: {img['url']}")
+        
+    except Exception as e:
+        print(f"--- ⚠️ خطأ في Selenium: {e}")
     finally:
         driver.quit()
-    print(f"--- ✅ صور صالحة: {len(images_data)}")
+    
     return images_data
 
+# بقية الكود يبقى كما هو...
 def get_best_images_for_article(article_url, rss_image=None):
-    data = scrape_article_images_with_alt(article_url)
-    if rss_image and is_valid_article_image(rss_image) and rss_image not in [d['url'] for d in data]:
-        data.append({'url': rss_image, 'alt': 'Featured recipe image'})
-    if len(data) >= 2:
-        return data[0], (data[2] if len(data) >= 3 else data[1])
-    elif len(data) == 1:
-        return data[0], data[0]
+    """الحصول على أفضل صورتين مع alt text"""
+    scraped_images_data = scrape_article_images_with_alt(article_url)
+    
+    all_images_data = []
+    all_images_data.extend(scraped_images_data)
+    
+    if rss_image and is_valid_article_image(rss_image):
+        rss_exists = False
+        for img_data in all_images_data:
+            if img_data['url'] == rss_image:
+                rss_exists = True
+                break
+        
+        if not rss_exists:
+            all_images_data.append({
+                'url': rss_image,
+                'alt': 'Featured recipe image'
+            })
+    
+    if len(all_images_data) >= 2:
+        image1_data = all_images_data[0]
+        if len(all_images_data) >= 3:
+            image2_data = all_images_data[2]
+        else:
+            image2_data = all_images_data[1]
+    elif len(all_images_data) == 1:
+        image1_data = image2_data = all_images_data[0]
     else:
-        return None, None
+        image1_data = image2_data = None
+    
+    return image1_data, image2_data
 
 def create_mid_cta(original_link, recipe_title="this recipe"):
-    ctas = [
-        f'💡 <em>Exact measurements and timing here: <a href="{original_link}" target="_blank" rel="noopener">{SITE_DOMAIN}</a></em>',
-        f'👉 <em>Ingredients + detailed steps for {recipe_title}: <a href="{original_link}" target="_blank" rel="noopener">{SITE_DOMAIN}</a></em>',
-        f'📖 <em>Printable version with nutrition at <a href="{original_link}" target="_blank" rel="noopener">{SITE_DOMAIN}</a></em>',
-        f'🍳 <em>Step-by-step photos + pro tips: <a href="{original_link}" target="_blank" rel="noopener">{SITE_DOMAIN}</a></em>'
+    """إنشاء CTA خفيف للمنتصف"""
+    cta_variations = [
+        f'💡 <em>Want to see the exact measurements and timing? Check out <a href="{original_link}" rel="noopener" target="_blank">the full recipe on {SITE_DOMAIN}</a></em>',
+        f'👉 <em>Get all the ingredients and detailed steps for {recipe_title} on <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em>',
+        f'📖 <em>Find the printable version with nutrition facts at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em>',
+        f'🍳 <em>See step-by-step photos and pro tips on <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em>'
     ]
+    
     import hashlib
-    i = int(hashlib.md5(original_link.encode()).hexdigest(), 16) % len(ctas)
-    return f"<p>{ctas[i]}</p>"
+    index = int(hashlib.md5(original_link.encode()).hexdigest(), 16) % len(cta_variations)
+    return f'<p>{cta_variations[index]}</p>'
 
 def create_final_cta(original_link):
-    return f'''
-<br>
-<hr>
-<h3>Ready to Make This Recipe?</h3>
-<p><strong>🎯 Get the complete recipe with:</strong></p>
-<ul>
-  <li>Exact measurements and ingredients list</li>
-  <li>Step-by-step instructions with photos</li>
-  <li>Prep and cooking times</li>
-  <li>Nutritional information</li>
-  <li>Storage and serving suggestions</li>
-</ul>
-<p><strong>👇 Visit <a href="{original_link}" target="_blank" rel="noopener">{SITE_DOMAIN}</a> for the full recipe and more delicious ideas!</strong></p>
-'''
+    """إنشاء CTA قوي للنهاية"""
+    final_cta = f'''
+    <br>
+    <hr>
+    <h3>Ready to Make This Recipe?</h3>
+    <p><strong>🎯 Get the complete recipe with:</strong></p>
+    <ul>
+        <li>Exact measurements and ingredients list</li>
+        <li>Step-by-step instructions with photos</li>
+        <li>Prep and cooking times</li>
+        <li>Nutritional information</li>
+        <li>Storage and serving suggestions</li>
+    </ul>
+    <p><strong>👇 Visit <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a> for the full recipe and more delicious ideas!</strong></p>
+    '''
+    return final_cta
 
 def rewrite_content_with_gemini(title, content_html, original_link, image1_alt="", image2_alt=""):
     if not GEMINI_API_KEY:
-        print("!!! تحذير: لا يوجد GEMINI_API_KEY، سيتم استخدام المحتوى الأصلي")
+        print("!!! تحذير: لم يتم العثور على مفتاح GEMINI_API_KEY.")
         return None
-    print("--- 💬 التواصل مع Gemini API...")
-    clean = re.sub('<[^<]+?>', ' ', content_html)
+
+    print("--- 💬 التواصل مع Gemini API لإنشاء مقال احترافي...")
+    clean_content = re.sub('<[^<]+?>', ' ', content_html)
+    
     alt_info = ""
-    if image1_alt: alt_info += f"\n- Image 1 description: {image1_alt}"
-    if image2_alt and image2_alt != image1_alt: alt_info += f"\n- Image 2 description: {image2_alt}"
+    if image1_alt:
+        alt_info += f"\n- Image 1 description: {image1_alt}"
+    if image2_alt and image2_alt != image1_alt:
+        alt_info += f"\n- Image 2 description: {image2_alt}"
+    
     prompt = """
-You are a professional SEO copywriter for Medium.
-Rewrite the recipe for engagement and SEO.
+    You are a professional SEO copywriter for Medium.
+    Your task is to rewrite a recipe article for maximum engagement and SEO.
 
-Original Title: "%s"
-Original Content: "%s"
-Link: "%s"%s
+    **Original Data:**
+    - Original Title: "%s"
+    - Original Content: "%s"
+    - Link to full recipe: "%s"%s
 
-Requirements:
-- 600-700 words, clean HTML (p, h2, h3, ul, ol, li, strong, em, br)
-- Do NOT add <img> or links
-- Insert placeholders exactly:
-  INSERT_IMAGE_1_HERE
-  INSERT_MID_CTA_HERE
-  INSERT_IMAGE_2_HERE
-- Provide 5 tags
-- Provide captions: caption1, caption2
+    **Requirements:**
+    1. **New Title:** Create an engaging, SEO-optimized title (60-70 characters)
+    2. **Article Body:** Write 600-700 words in clean HTML format
+       - Start with a compelling introduction
+       - Include practical tips and insights
+       - Use headers (h2, h3) for structure
+       - Add numbered or bulleted lists where appropriate
+       - **IMPORTANT**: Use ONLY simple HTML tags (p, h2, h3, ul, ol, li, strong, em, br)
+       - **DO NOT** use img, figure, or complex tags
+       - Insert these EXACT placeholders AS WRITTEN:
+         * INSERT_IMAGE_1_HERE (after the introduction paragraph)
+         * INSERT_MID_CTA_HERE (after the first image, natural placement)
+         * INSERT_IMAGE_2_HERE (in the middle section of the article)
+       - DO NOT add any call-to-action or links in the content (they will be added automatically)
+    3. **Tags:** Suggest 5 relevant Medium tags
+    4. **Image Captions:** Create engaging captions that relate to the images
 
-Return ONLY valid JSON with keys:
-new_title, new_html_content, tags, caption1, caption2
-""" % (title, clean[:1500], original_link, alt_info)
+    **Output Format:**
+    Return ONLY a valid JSON object with these keys:
+    - "new_title": The new title
+    - "new_html_content": The HTML content with placeholders (NO links or CTAs)
+    - "tags": Array of 5 tags
+    - "caption1": A short engaging caption for the first image
+    - "caption2": A short engaging caption for the second image
+    """ % (title, clean_content[:1500], original_link, alt_info)
+    
     api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}'
     headers = {'Content-Type': 'application/json'}
-    data = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7}}
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7}
+    }
+    
     try:
-        r = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
-        r.raise_for_status()
-        j = r.json()
-        raw = j['candidates'][0]['content']['parts'][0]['text']
-        m = re.search(r'\{.*\}', raw, re.DOTALL)
-        if not m: raise ValueError("No JSON in Gemini response")
-        res = json.loads(m.group(0))
-        print("--- ✅ تم الاستلام من Gemini")
-        return {
-            "title": res.get("new_title", title),
-            "content": res.get("new_html_content", content_html),
-            "tags": res.get("tags", []),
-            "caption1": res.get("caption1", ""),
-            "caption2": res.get("caption2", "")
-        }
+        response = requests.post(api_url, headers=headers, data=json.dumps(data), timeout=180)
+        response.raise_for_status()
+        response_json = response.json()
+        raw_text = response_json['candidates'][0]['content']['parts'][0]['text']
+        
+        json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if json_match:
+            clean_json_str = json_match.group(0)
+            result = json.loads(clean_json_str)
+            print("--- ✅ تم استلام مقال محسّن من Gemini.")
+            return {
+                "title": result.get("new_title", title),
+                "content": result.get("new_html_content", content_html),
+                "tags": result.get("tags", []),
+                "caption1": result.get("caption1", ""),
+                "caption2": result.get("caption2", "")
+            }
     except Exception as e:
-        print(f"!!! خطأ Gemini: {e}")
+        print(f"!!! خطأ في Gemini: {e}")
         return None
 
-def prepare_html_with_images_and_ctas(content_html, image1, image2, original_link, original_title, caption1="", caption2=""):
-    print("--- 🎨 تجهيز المحتوى النهائي...")
-    # الصورة 1
-    if image1:
-        alt1 = image1.get('alt') or "Recipe preparation"
-        full_alt1 = f"{alt1} | {SITE_DOMAIN}"
-        img1_html = f'<img src="{image1["url"]}" alt="{full_alt1}">'
-        cap1 = caption1 or (f"{image1.get('alt','').strip()} | {SITE_DOMAIN}" if image1.get('alt') else f"Step-by-step preparation | {SITE_DOMAIN}")
-        img1_block = f'{img1_html}<p><em>{cap1}</em></p>'
-    else:
-        img1_block = ""
-    # CTA وسط
-    mid_cta = create_mid_cta(original_link, original_title)
-    # الصورة 2
-    if image2:
-        alt2 = image2.get('alt') or "Final dish"
-        full_alt2 = f"{alt2} | {SITE_DOMAIN}"
-        img2_html = f'<img src="{image2["url"]}" alt="{full_alt2}">'
-        if caption2:
-            cap2 = caption2
-        elif image2.get('alt') and image2['alt'] != image1.get('alt', ''):
-            cap2 = f"{image2['alt']} | {SITE_DOMAIN}"
-        elif image1 and image2['url'] == image1.get('url', ''):
-            cap2 = f"Another view of this delicious recipe | {SITE_DOMAIN}"
+def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2_data, original_link, original_title, caption1="", caption2=""):
+    """إعداد HTML النهائي مع الصور وCTAs متعددة"""
+    
+    print("--- 🎨 إعداد المحتوى النهائي مع الصور وCTAs...")
+    
+    # إعداد HTML للصورة الأولى
+    if image1_data:
+        alt1 = image1_data['alt'] or "Recipe preparation"
+        full_alt1 = f"{alt1} | {SITE_DOMAIN}" if alt1 else f"Recipe image | {SITE_DOMAIN}"
+        
+        image1_html = f'<img src="{image1_data["url"]}" alt="{full_alt1}">'
+        
+        if caption1:
+            image_caption1 = caption1
+        elif image1_data['alt']:
+            image_caption1 = f"{image1_data['alt']} | {SITE_DOMAIN}"
         else:
-            cap2 = f"The final result - absolutely delicious! | {SITE_DOMAIN}"
-        img2_block = f'{img2_html}<p><em>{cap2}</em></p>'
+            image_caption1 = f"Step-by-step preparation | {SITE_DOMAIN}"
+        
+        image1_with_caption = f'{image1_html}<p><em>{image_caption1}</em></p>'
     else:
-        img2_block = ""
-
-    html = content_html.replace("INSERT_IMAGE_1_HERE", img1_block)
-    html = html.replace("INSERT_MID_CTA_HERE", mid_cta)
-    html = html.replace("INSERT_IMAGE_2_HERE", img2_block)
+        image1_with_caption = ""
+    
+    # إعداد CTA المنتصف
+    mid_cta = create_mid_cta(original_link, original_title)
+    
+    # إعداد HTML للصورة الثانية
+    if image2_data:
+        alt2 = image2_data['alt'] or "Final dish"
+        full_alt2 = f"{alt2} | {SITE_DOMAIN}" if alt2 else f"Recipe result | {SITE_DOMAIN}"
+        
+        image2_html = f'<img src="{image2_data["url"]}" alt="{full_alt2}">'
+        
+        if caption2:
+            image_caption2 = caption2
+        elif image2_data['alt'] and image2_data['alt'] != image1_data.get('alt', ''):
+            image_caption2 = f"{image2_data['alt']} | {SITE_DOMAIN}"
+        elif image2_data['url'] == image1_data.get('url', ''):
+            image_caption2 = f"Another view of this delicious recipe | {SITE_DOMAIN}"
+        else:
+            image_caption2 = f"The final result - absolutely delicious! | {SITE_DOMAIN}"
+        
+        image2_with_caption = f'{image2_html}<p><em>{image_caption2}</em></p>'
+    else:
+        image2_with_caption = ""
+    
+    # استبدال العلامات
+    content_html = content_html.replace("INSERT_IMAGE_1_HERE", image1_with_caption)
+    content_html = content_html.replace("INSERT_MID_CTA_HERE", mid_cta)
+    content_html = content_html.replace("INSERT_IMAGE_2_HERE", image2_with_caption)
+    
+    # إضافة CTA النهائي
     final_cta = create_final_cta(original_link)
-    return html + final_cta
-
-def ensure_published(wait, driver, timeout=30):
-    """تحقق أن المقال نُشر فعلاً (وليس مسودة). يعيد True عند النشر."""
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        try:
-            url = driver.current_url
-            # منشور عادة يكون /p/{id} أو /@username/
-            if "/p/" in url or "/@" in url:
-                return True
-            # تحقق من وجود عنصر يشير لصفحة منشورة (عنوان منشور)
-            if driver.find_elements(By.CSS_SELECTOR, 'article'):
-                # أحياناً تبقى نفس الـ URL، لكن الصفحة تتغير إلى صفحة المنشور
-                meta_urls = driver.find_elements(By.CSS_SELECTOR, 'meta[property="og:url"]')
-                for m in meta_urls:
-                    c = m.get_attribute("content") or ""
-                    if "/p/" in c or "/@" in c:
-                        return True
-        except:
-            pass
-        time.sleep(1)
-    return False
-
-def click_publish_flow(wait, driver, ai_tags):
-    """نفس منطق v19 تماماً + إعادة محاولة + تحقق نشر"""
-    print("--- 5. بدء عملية النشر (منطق v19)...")
-    # زر فتح نافذة النشر
-    publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-    publish_button.click()
-    time.sleep(1)
-
-    # الوسوم (اختياري)
-    if ai_tags:
-        try:
-            print("--- 6. إضافة الوسوم...")
-            tags_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')))
-            tags_input.click()
-            for tag in ai_tags[:5]:
-                tags_input.send_keys(tag)
-                time.sleep(0.5)
-                tags_input.send_keys(Keys.ENTER)
-                time.sleep(0.8)
-            print(f"--- تمت إضافة الوسوم: {', '.join(ai_tags[:5])}")
-        except:
-            print("--- تخطي الوسوم (لم أعثر على الحقل)")
-
-    # زر التأكيد للنشر
-    print("--- 7. إرسال أمر النشر النهائي...")
-    publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-    time.sleep(1.5)
-    try:
-        ActionChains(driver).move_to_element(publish_now_button).pause(0.3).click(publish_now_button).perform()
-    except:
-        driver.execute_script("arguments[0].click();", publish_now_button)
-
-    # تحقق النشر، وإذا فشل نعيد المحاولة مرة ثانية
-    if ensure_published(wait, driver, timeout=25):
-        print("    ✅ تأكد النشر")
-        return True
-
-    print("    ⚠️ لم يتم التأكد، إعادة المحاولة...")
-    time.sleep(2)
-    # حاول فتح نافذة النشر مرة أخرى
-    try:
-        publish_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')))
-        publish_button.click()
-        time.sleep(1)
-        publish_now_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')))
-        driver.execute_script("arguments[0].click();", publish_now_button)
-    except:
-        pass
-
-    ok = ensure_published(wait, driver, timeout=25)
-    if ok:
-        print("    ✅ تم النشر بعد إعادة المحاولة")
-    else:
-        print("    ❌ ما زال في المسودات (سأحفظ اللقطات للتشخيص)")
-    return ok
+    
+    return content_html + final_cta
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v31.2 Direct Publish لموقع {SITE_DOMAIN} ---")
-    post = get_next_post_to_publish()
-    if not post:
-        print(">>> لا توجد مقالات جديدة.")
+    print(f"--- بدء تشغيل الروبوت الناشر v30 Universal لموقع {SITE_DOMAIN} ---")
+    post_to_publish = get_next_post_to_publish()
+    if not post_to_publish:
+        print(">>> النتيجة: لا توجد مقالات جديدة.")
         return
 
-    original_title = post.title
-    original_link = post.link
-    rss_image = extract_image_url_from_entry(post)
+    original_title = post_to_publish.title
+    original_link = post_to_publish.link
+    
+    rss_image = extract_image_url_from_entry(post_to_publish)
     if rss_image:
         print(f"--- 📷 صورة RSS احتياطية: {rss_image[:80]}...")
-
+    
     image1_data, image2_data = get_best_images_for_article(original_link, rss_image)
-    if image1_data: print(f"--- 🖼️ الصورة الأولى: {image1_data['url'][:80]}...")
-    if image2_data: print(f"--- 🖼️ الصورة الثانية: {image2_data['url'][:80]}...")
+    
+    if image1_data:
+        print(f"--- 🖼️ الصورة الأولى: {image1_data['url'][:60]}...")
+        if image1_data['alt']:
+            print(f"      Alt: {image1_data['alt'][:50]}...")
+    if image2_data:
+        print(f"--- 🖼️ الصورة الثانية: {image2_data['url'][:60]}...")
+        if image2_data['alt']:
+            print(f"      Alt: {image2_data['alt'][:50]}...")
+    
+    if not image1_data:
+        print("--- ⚠️ لم يتم العثور على صور صالحة للمقال!")
+    
+    original_content_html = ""
+    if 'content' in post_to_publish and post_to_publish.content:
+        original_content_html = post_to_publish.content[0].value
+    else:
+        original_content_html = post_to_publish.summary
 
-    # المحتوى الأصلي
-    original_content_html = post.content[0].value if ('content' in post and post.content) else post.summary
-
-    # تحسين بالموديل
     image1_alt = image1_data['alt'] if image1_data else ""
     image2_alt = image2_data['alt'] if image2_data else ""
-    rewritten = rewrite_content_with_gemini(original_title, original_content_html, original_link, image1_alt, image2_alt)
-
-    if rewritten:
-        final_title = rewritten["title"]
-        ai_content = rewritten["content"]
-        ai_tags = rewritten.get("tags", [])
-        caption1 = rewritten.get("caption1", "")
-        caption2 = rewritten.get("caption2", "")
-        full_html_content = prepare_html_with_images_and_ctas(ai_content, image1_data, image2_data, original_link, original_title, caption1, caption2)
+    
+    rewritten_data = rewrite_content_with_gemini(
+        original_title, original_content_html, original_link, image1_alt, image2_alt
+    )
+    
+    if rewritten_data:
+        final_title = rewritten_data["title"]
+        ai_content = rewritten_data["content"]
+        ai_tags = rewritten_data.get("tags", [])
+        caption1 = rewritten_data.get("caption1", "")
+        caption2 = rewritten_data.get("caption2", "")
+        
+        full_html_content = prepare_html_with_multiple_images_and_ctas(
+            ai_content, image1_data, image2_data, original_link, original_title, caption1, caption2
+        )
+        print("--- ✅ تم إعداد المحتوى المُحسّن مع الصور وDouble CTA.")
     else:
-        print("--- ⚠️ استخدام المحتوى الأصلي.")
+        print("--- ⚠️ سيتم استخدام المحتوى الأصلي.")
         final_title = original_title
         ai_tags = []
-        img1 = f'<img src="{image1_data["url"]}" alt="{(image1_data.get("alt") or "Recipe image")+" | "+SITE_DOMAIN}">' if image1_data else ""
-        img2 = f'<br><img src="{image2_data["url"]}" alt="{(image2_data.get("alt") or "Recipe detail")+" | "+SITE_DOMAIN}">' if image2_data and (not image1_data or image2_data["url"] != image1_data.get("url","")) else ""
-        mid_cta = f'<p><em>👉 See the full recipe at <a href="{original_link}" target="_blank" rel="noopener">{SITE_DOMAIN}</a></em></p>'
-        final_cta = create_final_cta(original_link)
-        full_html_content = img1 + mid_cta + original_content_html + img2 + final_cta
+        
+        if image1_data:
+            alt1 = f"{image1_data['alt']} | {SITE_DOMAIN}" if image1_data['alt'] else f"Recipe image | {SITE_DOMAIN}"
+            image1_html = f'<img src="{image1_data["url"]}" alt="{alt1}">'
+            caption1 = f"<p><em>{alt1}</em></p>"
+        else:
+            image1_html = ""
+            caption1 = ""
+        
+        mid_cta = f'<p><em>👉 See the full recipe at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em></p>'
+        
+        if image2_data and image2_data['url'] != image1_data.get('url', ''):
+            alt2 = f"{image2_data['alt']} | {SITE_DOMAIN}" if image2_data['alt'] else f"Recipe detail | {SITE_DOMAIN}"
+            image2_html = f'<br><img src="{image2_data["url"]}" alt="{alt2}">'
+            caption2 = f"<p><em>{alt2}</em></p>"
+        else:
+            image2_html = ""
+            caption2 = ""
+        
+        final_cta = f'<br><p><strong>Get the complete recipe with all ingredients and instructions at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</strong></p>'
+        
+        full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
 
-    # --- النشر على Medium (نفس منطق v19) ---
+    # --- النشر على Medium ---
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
+    
     if not sid_cookie or not uid_cookie:
         print("!!! خطأ: لم يتم العثور على الكوكيز.")
         return
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
-
+    
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-    stealth(driver, languages=["en-US", "en"], vendor="Google Inc.", platform="Win32", webgl_vendor="Intel Inc.", renderer="Intel Iris OpenGL Engine", fix_hairline=True)
 
+    stealth(driver, 
+            languages=["en-US", "en"], 
+            vendor="Google Inc.", 
+            platform="Win32", 
+            webgl_vendor="Intel Inc.", 
+            renderer="Intel Iris OpenGL Engine", 
+            fix_hairline=True)
+    
     try:
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
         driver.add_cookie({"name": "uid", "value": uid_cookie, "domain": ".medium.com"})
+        
+        print("--- 3. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
-        wait = WebDriverWait(driver, 35)
-
-        print("--- 3. كتابة العنوان...")
-        title_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')))
+        
+        wait = WebDriverWait(driver, 30)
+        
+        print("--- 4. كتابة العنوان...")
+        title_field = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')
+        ))
         title_field.click()
         title_field.send_keys(final_title)
-
-        print("--- 4. إدراج المحتوى...")
-        story_field = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')))
+        
+        print("--- 5. إدراج المحتوى مع الصور وCTAs...")
+        story_field = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')
+        ))
         story_field.click()
+        
         js_script = """
         const html = arguments[0];
         const blob = new Blob([html], { type: 'text/html' });
@@ -437,28 +655,95 @@ def main():
         """
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
-        time.sleep(6)  # مهلة لرفع الصور
+        
+        print("--- ⏳ انتظار رفع الصور...")
+        time.sleep(12)
+        
+        print("--- 6. بدء النشر...")
+        publish_button = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
+        ))
+        publish_button.click()
+        
+        print("--- 7. إضافة الوسوم...")
+        if ai_tags:
+            try:
+                tags_input = wait.until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
+                ))
+                tags_input.click()
+                
+                for tag in ai_tags[:5]:
+                    tags_input.send_keys(tag)
+                    time.sleep(0.5)
+                    tags_input.send_keys(Keys.ENTER)
+                    time.sleep(1)
+                print(f"--- تمت إضافة الوسوم: {', '.join(ai_tags[:5])}")
+            except:
+                print("--- تخطي الوسوم")
+        
+       print("--- 8. النشر النهائي...")
 
-        # عملية النشر (v19) + تحقق
-        ok = click_publish_flow(wait, driver, ai_tags)
-        if not ok:
-            # حفظ للتشخيص
-            driver.save_screenshot("error_screenshot.png")
-            with open("error_page_source.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-            raise RuntimeError("لم أستطع التأكد من النشر (قد تكون مسودة)")
+# أخذ screenshot للتشخيص
+driver.save_screenshot("before_publish.png")
+print("    📸 تم حفظ screenshot: before_publish.png")
 
-        add_posted_link(post.link)
+# انتظار قليل للتأكد من تحميل كل الخيارات
+time.sleep(3)
+
+# طباعة كل الأزرار المتاحة للتشخيص
+all_buttons = driver.find_elements(By.TAG_NAME, "button")
+print(f"    🔍 عدد الأزرار المتاحة: {len(all_buttons)}")
+for i, btn in enumerate(all_buttons):
+    btn_text = btn.text
+    if btn_text:
+        print(f"    Button {i}: {btn_text[:50]}")
+
+# البحث عن أي عناصر تحتوي على كلمة "draft" أو "schedule"
+draft_elements = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'draft')]")
+schedule_elements = driver.find_elements(By.XPATH, "//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'schedule')]")
+
+if draft_elements:
+    print(f"    ⚠️ وجدت {len(draft_elements)} عنصر يحتوي على 'draft'")
+if schedule_elements:
+    print(f"    ⚠️ وجدت {len(schedule_elements)} عنصر يحتوي على 'schedule'")
+
+# محاولة الضغط على أي شيء يقول "Publish" وليس "Draft"
+try:
+    # البحث عن الزر الصحيح
+    for button in all_buttons:
+        button_text = button.text.lower()
+        # إذا وجدنا زر "Publish now" أو "Publish" فقط (وليس "Save draft")
+        if ('publish' in button_text and 
+            'draft' not in button_text and 
+            'ready' not in button_text and
+            button.is_enabled()):
+            
+            print(f"    🎯 وجدت زر النشر: {button.text}")
+            driver.execute_script("arguments[0].scrollIntoView(true);", button)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", button)
+            print("    ✅ تم الضغط على زر النشر")
+            break
+except:
+    # إذا فشل، استخدم الطريقة الأصلية
+    publish_now_button = wait.until(EC.element_to_be_clickable(
+        (By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
+    ))
+    time.sleep(2)
+    driver.execute_script("arguments[0].click();", publish_now_button)
+        
+        print("--- 9. انتظار معالجة النشر...")
+        time.sleep(15)
+        
+        add_posted_link(post_to_publish.link)
         print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
-
+        
     except Exception as e:
-        print(f"!!! حدث خطأ: {e}")
-        try:
-            driver.save_screenshot("error_screenshot.png")
-            with open("error_page_source.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-        except:
-            pass
+        print(f"!!! خطأ: {e}")
+        driver.save_screenshot("error_screenshot.png")
+        with open("error_page_source.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
         raise e
     finally:
         driver.quit()
