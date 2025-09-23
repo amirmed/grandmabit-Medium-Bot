@@ -484,7 +484,6 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
 
 def main():
     print(f"--- بدء تشغيل الروبوت الناشر v32 لموقع {SITE_DOMAIN} ---")
-
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -492,10 +491,25 @@ def main():
 
     original_title = post_to_publish.title
     original_link = post_to_publish.link
+    
     rss_image = extract_image_url_from_entry(post_to_publish)
-
+    if rss_image:
+        print(f"--- 📷 صورة RSS احتياطية: {rss_image[:80]}...")
+    
     image1_data, image2_data = get_best_images_for_article(original_link, rss_image)
-
+    
+    if image1_data:
+        print(f"--- 🖼️ الصورة الأولى: {image1_data['url'][:60]}...")
+        if image1_data['alt']:
+            print(f"      Alt: {image1_data['alt'][:50]}...")
+    if image2_data:
+        print(f"--- 🖼️ الصورة الثانية: {image2_data['url'][:60]}...")
+        if image2_data['alt']:
+            print(f"      Alt: {image2_data['alt'][:50]}...")
+    
+    if not image1_data:
+        print("--- ⚠️ لم يتم العثور على صور صالحة للمقال!")
+    
     original_content_html = ""
     if 'content' in post_to_publish and post_to_publish.content:
         original_content_html = post_to_publish.content[0].value
@@ -504,28 +518,53 @@ def main():
 
     image1_alt = image1_data['alt'] if image1_data else ""
     image2_alt = image2_data['alt'] if image2_data else ""
-
+    
     rewritten_data = rewrite_content_with_gemini(
         original_title, original_content_html, original_link, image1_alt, image2_alt
     )
-
+    
     if rewritten_data:
         final_title = rewritten_data["title"]
         ai_content = rewritten_data["content"]
         ai_tags = rewritten_data.get("tags", [])
         caption1 = rewritten_data.get("caption1", "")
         caption2 = rewritten_data.get("caption2", "")
+        
         full_html_content = prepare_html_with_multiple_images_and_ctas(
             ai_content, image1_data, image2_data, original_link, original_title, caption1, caption2
         )
+        print("--- ✅ تم إعداد المحتوى المُحسّن مع الصور وDouble CTA.")
     else:
+        print("--- ⚠️ سيتم استخدام المحتوى الأصلي.")
         final_title = original_title
         ai_tags = []
-        full_html_content = original_content_html
+        
+        if image1_data:
+            alt1 = f"{image1_data['alt']} | {SITE_DOMAIN}" if image1_data['alt'] else f"Recipe image | {SITE_DOMAIN}"
+            image1_html = f'<img src="{image1_data["url"]}" alt="{alt1}">'
+            caption1 = f"<p><em>{alt1}</em></p>"
+        else:
+            image1_html = ""
+            caption1 = ""
+        
+        mid_cta = f'<p><em>👉 See the full recipe at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a></em></p>'
+        
+        if image2_data and image2_data['url'] != image1_data.get('url', ''):
+            alt2 = f"{image2_data['alt']} | {SITE_DOMAIN}" if image2_data['alt'] else f"Recipe detail | {SITE_DOMAIN}"
+            image2_html = f'<br><img src="{image2_data["url"]}" alt="{alt2}">'
+            caption2 = f"<p><em>{alt2}</em></p>"
+        else:
+            image2_html = ""
+            caption2 = ""
+        
+        final_cta = f'<br><p><strong>Get the complete recipe with all ingredients and instructions at <a href="{original_link}" rel="noopener" target="_blank">{SITE_DOMAIN}</a>.</strong></p>'
+        
+        full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
 
     # --- النشر على Medium ---
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
+    
     if not sid_cookie or not uid_cookie:
         print("!!! خطأ: لم يتم العثور على الكوكيز.")
         return
@@ -535,104 +574,131 @@ def main():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
-
+    
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
-    stealth(
-        driver,
-        languages=["en-US", "en"],
-        vendor="Google Inc.",
-        platform="Win32",
-        webgl_vendor="Intel Inc.",
-        renderer="Intel Iris OpenGL Engine",
-        fix_hairline=True
-    )
 
+    stealth(driver, 
+            languages=["en-US", "en"], 
+            vendor="Google Inc.", 
+            platform="Win32", 
+            webgl_vendor="Intel Inc.", 
+            renderer="Intel Iris OpenGL Engine", 
+            fix_hairline=True)
+    
     try:
         print("--- 2. إعداد الجلسة...")
         driver.get("https://medium.com/")
         driver.add_cookie({"name": "sid", "value": sid_cookie, "domain": ".medium.com"})
         driver.add_cookie({"name": "uid", "value": uid_cookie, "domain": ".medium.com"})
-
+        
         print("--- 3. الانتقال إلى محرر المقالات...")
         driver.get("https://medium.com/new-story")
+        
         wait = WebDriverWait(driver, 30)
-
+        
         print("--- 4. كتابة العنوان...")
-        title_field = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]'))
-        )
+        title_field = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')
+        ))
         title_field.click()
         title_field.send_keys(final_title)
-
-        print("--- 5. إدخال المحتوى...")
-        story_field = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'div[contenteditable="true"]'))
-        )
-        driver.execute_script(
-            "arguments[0].innerHTML = arguments[1];", story_field, full_html_content
-        )
-        print("✅ المحتوى تم إدخاله مباشرة داخل المحرر")
-
-        time.sleep(3)
-
+        
+        print("--- 5. إدراج المحتوى مع الصور وCTAs...")
+        story_field = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')
+        ))
+        story_field.click()
+        
+        js_script = """
+        const html = arguments[0];
+        const blob = new Blob([html], { type: 'text/html' });
+        const item = new ClipboardItem({ 'text/html': blob });
+        navigator.clipboard.write([item]);
+        """
+        driver.execute_script(js_script, full_html_content)
+        story_field.send_keys(Keys.CONTROL, 'v')
+        
+        print("--- ⏳ انتظار رفع الصور...")
+        time.sleep(12)
+        
         print("--- 6. بدء النشر (فتح نافذة الخيارات)...")
-        publish_button = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-action="show-prepublish"]'))
-        )
+        publish_button = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, 'button[data-action="show-prepublish"]')
+        ))
         publish_button.click()
-
-        print("--- 7. اختيار Public...")
-        try:
-            public_radio = wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 'input[name="visibility"][value="public"]'))
-            )
-            driver.execute_script("arguments[0].click();", public_radio)
-            print("✅ تم اختيار Public")
-        except:
-            print("⚠️ لم يتم العثور على خيار Public (غالبًا يتم اختياره افتراضيًا).")
-
-        print("--- 8. إضافة الوسوم...")
+        
+        print("--- 7. إضافة الوسوم...")
         if ai_tags:
             try:
-                tags_input = wait.until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]'))
-                )
+                tags_input = wait.until(EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
+                ))
                 tags_input.click()
-                time.sleep(1)
+                # إضافة انتظار إضافي هنا
+                time.sleep(2) 
+                
                 for tag in ai_tags[:5]:
                     tags_input.send_keys(tag)
                     time.sleep(0.5)
                     tags_input.send_keys(Keys.ENTER)
                     time.sleep(1)
-                print("✅ تمت إضافة الوسوم")
+                print(f"--- تمت إضافة الوسوم: {', '.join(ai_tags[:5])}")
             except Exception as e:
-                print(f"⚠️ خطأ أثناء إضافة الوسوم: {e}")
+                print(f"--- ⚠️ خطأ أثناء إضافة الوسوم (سيتم التخطي): {e}")
 
-        print("--- 9. النشر النهائي...")
-        final_publish_button = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]'))
-        )
-        driver.execute_script("arguments[0].click();", final_publish_button)
+        # === التعديل الرئيسي هنا: طريقة جديدة وموثوقة للنشر النهائي ===
+        
+        print("--- 8. محاولة النشر النهائي (الطريقة الجديدة)...")
+        # إضافة انتظار إضافي قبل النقر النهائي
+        time.sleep(3) 
 
-        print("✅ تم الضغط على زر النشر النهائي")
+        try:
+            final_publish_button = WebDriverWait(driver, 20).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]'))
+            )
+            print("    ✅ تم العثور على زر النشر النهائي وهو قابل للنقر.")
+            driver.execute_script("arguments[0].click();", final_publish_button)
+            print("    🖱️ تم الضغط على زر النشر النهائي بنجاح.")
 
-        # الانتظار حتى يظهر رابط المقال المنشور
-        wait.until(EC.url_contains("/p/"))
-        published_url = driver.current_url
+        except Exception as e:
+            print(f"    ❌ فشل الضغط على زر النشر النهائي. خطأ: {e}")
+            driver.save_screenshot("final_publish_error.png")
+            # محاولة أخيرة باستخدام XPath في حالة تغير data-testid
+            try:
+                final_publish_button_xpath = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Publish now')]"))
+                )
+                driver.execute_script("arguments[0].click();", final_publish_button_xpath)
+                print("    🖱️ تم النشر باستخدام XPath بنجاح.")
+            except Exception as e_xpath:
+                print(f"    ❌ فشل الضغط على زر النشر النهائي باستخدام XPath أيضًا. خطأ: {e_xpath}")
+                raise e_xpath
 
-        add_posted_link(post_to_publish.link)
-        print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على Medium: {published_url}")
-
+        # ======================= نهاية التعديل =======================
+        
+        print("--- 9. انتظار معالجة النشر...")
+        time.sleep(20) # زيادة الانتظار للتأكد من إتمام العملية
+        
+        print("--- 10. التحقق من نجاح النشر...")
+        current_url = driver.current_url
+        if "draft" not in current_url:
+            add_posted_link(post_to_publish.link)
+            print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح! الرابط: {current_url} 🎉🎉🎉")
+        else:
+            print(">>> ⚠️ النشر فشل! ما زال المقال في المسودة.")
+            print(f"    الرابط الحالي: {current_url}")
+            driver.save_screenshot("draft_page_final.png")
+            
     except Exception as e:
-        print(f"!!! حدث خطأ أثناء عملية النشر: {e}")
+        print(f"!!! حدث خطأ فادح أثناء عملية النشر: {e}")
         driver.save_screenshot("error_screenshot.png")
         with open("error_page_source.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
+        # لا نرفع الخطأ هنا لمنع توقف البرنامج إذا كان يعمل ضمن حلقة
     finally:
         driver.quit()
         print("--- تم إغلاق الروبوت ---")
-
 
 if __name__ == "__main__":
     main()
