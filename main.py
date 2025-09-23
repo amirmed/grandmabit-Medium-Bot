@@ -13,7 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 
-# --- برمجة ahmed si - النسخة v32 Final Fixed & Robust ---
+# --- برمجة ahmed si - النسخة v33 Final Robust ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -483,7 +483,7 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     return content_html + final_cta
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v32 لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v33 لموقع {SITE_DOMAIN} ---")
     post_to_publish = get_next_post_to_publish()
     if not post_to_publish:
         print(">>> النتيجة: لا توجد مقالات جديدة.")
@@ -631,12 +631,11 @@ def main():
         print("--- 7. إضافة الوسوم...")
         if ai_tags:
             try:
-                # ننتظر ظهور حقل الإدخال الخاص بالوسوم
                 tags_input = wait.until(EC.presence_of_element_located(
                     (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
                 ))
                 tags_input.click()
-                time.sleep(1) # انتظار بسيط
+                time.sleep(1)
                 
                 for tag in ai_tags[:5]:
                     tags_input.send_keys(tag)
@@ -647,47 +646,72 @@ def main():
             except Exception as e:
                 print(f"--- ⚠️ خطأ أثناء إضافة الوسوم (سيتم التخطي): {e}")
         
-        # === التعديل الرئيسي هنا: طريقة جديدة وموثوقة للنشر النهائي ===
+        # === التعديل الرئيسي هنا: v33 ===
         
-        print("--- 9. محاولة النشر الفوري (الطريقة الجديدة)...")
+        print("--- 8. التأكد من خيارات النشر الإضافية...")
         try:
-            # ننتظر حتى يصبح زر النشر النهائي قابلاً للنقر عليه
-            # نستخدم data-testid الذي وجدته لأنه الأكثر موثوقية
+            # البحث عن مربع اختيار "Send email to subscribers"
+            email_checkbox_selector = "input[type='checkbox']"
+            email_checkbox = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, email_checkbox_selector))
+            )
+            if not email_checkbox.is_selected():
+                print("    ✅ تم العثور على مربع إرسال الإيميل وهو غير محدد. سيتم تحديده الآن.")
+                # استخدام JavaScript للنقر لضمان التنفيذ
+                driver.execute_script("arguments[0].click();", email_checkbox)
+                time.sleep(1) # انتظار بسيط بعد النقر
+            else:
+                print("    ℹ️ مربع إرسال الإيميل محدد بالفعل.")
+        except Exception:
+            print("    ℹ️ لم يتم العثور على مربع اختيار إرسال الإيميل (قد لا يكون موجوداً).")
+
+        print("--- 9. محاولة النشر الفوري (طريقة محسّنة)...")
+        try:
             final_publish_button_selector = 'button[data-testid="publishConfirmButton"]'
-            
             print(f"    ⏳ انتظار الزر النهائي: {final_publish_button_selector}")
             
             final_publish_button = WebDriverWait(driver, 20).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, final_publish_button_selector))
             )
             
-            print("    ✅ تم العثور على زر النشر النهائي وهو قابل للنقر.")
-            
-            # نستخدم نقرة JavaScript لضمان التنفيذ
-            driver.execute_script("arguments[0].click();", final_publish_button)
-            
-            print("    🖱️ تم الضغط على زر النشر النهائي بنجاح عبر JavaScript.")
+            print("    ✅ تم العثور على زر النشر النهائي. محاولة النقر بطريقة Selenium العادية...")
+            final_publish_button.click()
+            print("    🖱️ تمت محاولة النقر بنجاح.")
 
         except Exception as e:
-            print(f"    ❌ فشلت الطريقة الجديدة والموثوقة للنشر. خطأ: {e}")
-            driver.save_screenshot("final_publish_error.png")
-            # إذا فشلت الطريقة الجديدة، يمكننا رفع الخطأ لإيقاف التنفيذ
-            raise e
+            print(f"    ⚠️ فشلت نقرة Selenium العادية. خطأ: {e}")
+            print("    ↪️ المحاولة مجدداً باستخدام نقرة JavaScript كخطة بديلة...")
+            try:
+                # إعادة البحث عن العنصر قبل النقر عليه بـ JS
+                final_publish_button = driver.find_element(By.CSS_SELECTOR, final_publish_button_selector)
+                driver.execute_script("arguments[0].click();", final_publish_button)
+                print("    🖱️ تم الضغط على زر النشر النهائي بنجاح عبر JavaScript.")
+            except Exception as js_e:
+                print(f"    ❌ فشلت كلتا محاولتي النقر. خطأ JS: {js_e}")
+                raise js_e # رفع الخطأ لإيقاف التنفيذ
 
         # ======================= نهاية التعديل =======================
         
-        print("--- 10. انتظار معالجة النشر...")
-        time.sleep(15) # انتظار كافي للتأكد من إتمام العملية
+        print("--- 10. انتظار معالجة النشر (20 ثانية)...")
+        time.sleep(20)
         
-        add_posted_link(post_to_publish.link)
-        print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
+        print("--- 11. التحقق من نجاح النشر...")
+        final_url = driver.current_url
+        print(f"    🔗 الرابط الحالي بعد النشر: {final_url}")
+        
+        if "/edit" in final_url or "/draft" in final_url:
+            print("    ⚠️ تحذير: يبدو أن المقال لا يزال في وضع التعديل أو المسودة. النشر لم يكتمل.")
+            driver.save_screenshot("publish_failed_final_page.png")
+            raise Exception("Post was not published, it remained a draft.")
+        else:
+            add_posted_link(post_to_publish.link)
+            print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
         
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء عملية النشر: {e}")
         driver.save_screenshot("error_screenshot.png")
         with open("error_page_source.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
-        # لا نرفع الخطأ هنا لمنع توقف البرنامج إذا كان يعمل ضمن حلقة
     finally:
         driver.quit()
         print("--- تم إغلاق الروبوت ---")
