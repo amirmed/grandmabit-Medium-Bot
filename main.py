@@ -16,7 +16,7 @@ import random
 import unicodedata
 from bs4 import BeautifulSoup
 
-# --- برمجة ahmed si - النسخة v36 Ultimate Fix ---
+# --- برمجة ahmed si - النسخة v37 Final ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -604,25 +604,19 @@ def clean_html_content_for_medium(html_content):
     """تنظيف المحتوى من أي علامات أو أحرف قد تسبب مشاكل"""
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # إزالة كل العلامات غير المسموح بها من Medium
     allowed_tags = ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'strong', 'em', 'br', 'a', 'img']
     for tag in soup.find_all(True):
         if tag.name not in allowed_tags:
             tag.unwrap()
     
-    # تحويل إلى نص مع ترميز صحيح
     cleaned_html = str(soup)
-    
-    # إزالة أي أحرف unicode غير مرئية
     cleaned_html = ''.join(c for c in cleaned_html if unicodedata.category(c)[0] != 'C')
-    
-    # إزالة المسافات الزائدة
     cleaned_html = re.sub(r'[\s\n\r]+', ' ', cleaned_html)
     
     return cleaned_html
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v36 Ultimate Fix لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v37 Final لموقع {SITE_DOMAIN} ---")
     
     if TEST_MODE:
         print("🧪 وضع الاختبار مُفعّل - سيتم إيقاف النشر الفعلي")
@@ -695,7 +689,6 @@ def main():
         
         full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
 
-    # تنظيف المحتوى قبل اللصق
     full_html_content = clean_html_content_for_medium(full_html_content)
     
     if TEST_MODE:
@@ -761,7 +754,14 @@ def main():
         
         print("--- ⏳ انتظار رفع الصور وحفظ المقال...")
         time.sleep(random.uniform(15, 20)) # زيادة الانتظار
-        check_for_save_status(driver, wait)
+        
+        # التحقق من وجود رسالة الحفظ
+        saved_status = check_for_save_status(driver, wait)
+        
+        if not saved_status:
+            print(">>> ❌ فشل حفظ المقال تلقائيًا. لا يمكن المتابعة إلى النشر.")
+            driver.save_screenshot("save_failed.png")
+            raise Exception("فشل حفظ المقال")
         
         driver.save_screenshot("content_ready.png")
         
@@ -782,17 +782,27 @@ def main():
         
         if publish_success:
             print("--- ✅ تم إرسال أمر النشر بنجاح! انتظار التأكيد النهائي...")
-            time.sleep(random.uniform(15, 20))
-            current_url = driver.current_url
+            # انتظار تغيير الرابط لمدة تصل إلى 60 ثانية
+            try:
+                WebDriverWait(driver, 60).until(
+                    EC.url_changes(driver.current_url)
+                )
+                print("--- ✅ تم تأكيد تغيير الرابط.")
+                current_url = driver.current_url
+                
+                if "draft" not in current_url and "edit" not in current_url:
+                    add_posted_link(post_to_publish.link)
+                    log_success_stats(final_title, current_url)
+                    print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح! الرابط: {current_url} 🎉🎉🎉")
+                else:
+                    print(">>> ⚠️ النشر فشل! ما زال المقال في المسودة.")
+                    print(f"    الرابط الحالي: {current_url}")
+            except:
+                print(">>> ❌ فشل التحقق من الرابط. الرابط لم يتغير.")
+                print(f"    الرابط الحالي: {driver.current_url}")
+            
             driver.save_screenshot("final_result.png")
             
-            if "draft" not in current_url and "edit" not in current_url:
-                add_posted_link(post_to_publish.link)
-                log_success_stats(final_title, current_url)
-                print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح! الرابط: {current_url} 🎉🎉🎉")
-            else:
-                print(">>> ⚠️ النشر فشل! ما زال المقال في المسودة.")
-                print(f"    الرابط الحالي: {current_url}")
         else:
             print(">>> ❌ فشل النشر بعد كل المحاولات.")
             driver.save_screenshot("final_publish_failed.png")
