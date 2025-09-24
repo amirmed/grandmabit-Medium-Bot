@@ -33,7 +33,7 @@ IMAGE_PATHS = [
 ]
 
 # وضع الاختبار - ضعه True للاختبار بدون نشر فعلي
-TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
+TEST_MODE = os.environ.get("TEST_MODE", "true").lower() == "true"
 # ==========================================
 
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -485,74 +485,6 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     
     return content_html + final_cta
 
-def add_tags_safely(driver, wait, tags):
-    """إضافة الوسوم بطريقة أكثر موثوقية"""
-    if not tags:
-        return False
-    
-    try:
-        # انتظار قليل لضمان تحميل الصفحة
-        time.sleep(2)
-        
-        # محاولة العثور على حقل الوسوم بطرق متعددة
-        selectors = [
-            'div[data-testid="publishTopicsInput"]',
-            'input[placeholder*="Add a tag"]',
-            'input[placeholder*="Add up to"]',
-            'input[placeholder*="topic"]',
-            'div.tags-input',
-            'input[aria-label*="tag"]',
-            'input[aria-label*="topic"]'
-        ]
-        
-        tags_input = None
-        for selector in selectors:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                if elements:
-                    tags_input = elements[0]
-                    print(f"    ✅ وجدت حقل الوسوم: {selector}")
-                    break
-            except:
-                continue
-        
-        if not tags_input:
-            # محاولة أخيرة بالبحث عن أي input
-            all_inputs = driver.find_elements(By.TAG_NAME, "input")
-            for inp in all_inputs:
-                placeholder = inp.get_attribute("placeholder") or ""
-                if "tag" in placeholder.lower() or "topic" in placeholder.lower():
-                    tags_input = inp
-                    print("    ✅ وجدت حقل الوسوم عبر placeholder")
-                    break
-        
-        if tags_input:
-            # النقر على الحقل
-            driver.execute_script("arguments[0].scrollIntoView(true);", tags_input)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", tags_input)
-            time.sleep(1)
-            
-            # إضافة الوسوم
-            for i, tag in enumerate(tags[:5]):
-                if tag:
-                    tags_input.send_keys(tag)
-                    time.sleep(0.5)
-                    tags_input.send_keys(Keys.ENTER)
-                    time.sleep(1)
-                    print(f"    ✅ تمت إضافة الوسم {i+1}: {tag}")
-            
-            print(f"--- ✅ تمت إضافة {len(tags[:5])} وسوم بنجاح")
-            return True
-        else:
-            print("    ℹ️ لم أجد حقل الوسوم - متابعة بدون وسوم")
-            return False
-            
-    except Exception as e:
-        print(f"    ⚠️ خطأ في إضافة الوسوم: {str(e)[:100]}")
-        print("    ℹ️ متابعة بدون وسوم - لا يؤثر على النشر")
-        return False
-
 def ensure_publish_now_selected(driver):
     """التأكد من تحديد خيار النشر الفوري"""
     print("--- 🎯 التأكد من تحديد 'النشر الفوري'...")
@@ -847,7 +779,6 @@ def main():
     if TEST_MODE:
         print("🧪 وضع الاختبار: توقف قبل النشر الفعلي")
         print(f"    📝 العنوان: {final_title}")
-        print(f"    🏷️ الوسوم: {ai_tags}")
         return
 
     # --- النشر على Medium ---
@@ -932,16 +863,11 @@ def main():
         print("--- 7. التأكد من اختيار 'النشر الفوري'...")
         ensure_publish_now_selected(driver)
         
-        print("--- 8. إضافة الوسوم (اختياري)...")
-        tags_added = add_tags_safely(driver, wait, ai_tags)
-        if not tags_added:
-            print("    ℹ️ متابعة بدون وسوم - لا يؤثر على النشر")
-        
         # النشر النهائي بمحاولات محسّنة
-        print("--- 9. النشر النهائي...")
+        print("--- 8. النشر النهائي...")
         publish_result = publish_with_optimized_attempts(driver, wait)
         
-        print("--- 10. انتظار معالجة النشر...")
+        print("--- 9. انتظار معالجة النشر...")
         time.sleep(20)  # انتظار أطول للتأكد من إتمام العملية
         
         # حفظ لقطة شاشة نهائية
