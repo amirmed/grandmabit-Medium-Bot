@@ -632,7 +632,7 @@ def quick_publish_with_enter(driver):
         return False
 
 def publish_with_optimized_attempts(driver, wait):
-    """محاولات محسّنة للنشر النهائي - Enter أولاً"""
+    """محاولات محسّنة للنشر النهائي"""
     print("--- 🚀 بدء عملية النشر النهائي (محسّن)...")
     
     # حفظ لقطة شاشة قبل النشر
@@ -641,84 +641,43 @@ def publish_with_optimized_attempts(driver, wait):
     
     publish_success = False
     
-    # المحاولة 1: Enter (الأسرع والأكثر نجاحاً)
-    if not publish_success:
-        publish_success = quick_publish_with_enter(driver)
-    
-    # المحاولة 2: البحث عن زر "Publish now" بالنص
-    if not publish_success:
-        try:
-            print("    🔍 المحاولة 2: البحث عن زر 'Publish now'...")
-            buttons = driver.find_elements(By.TAG_NAME, "button")
-            for btn in buttons:
-                btn_text = btn.text.lower()
-                if "publish" in btn_text and ("now" in btn_text or not "schedule" in btn_text):
-                    driver.execute_script("arguments[0].scrollIntoView(true);", btn)
-                    time.sleep(1)
-                    driver.execute_script("arguments[0].click();", btn)
-                    print(f"    ✅ تم النقر على زر: {btn.text}")
-                    publish_success = True
+    try:
+        # البحث عن زر "Publish now" في النافذة المنبثقة
+        print("    🔍 محاولة العثور على زر النشر في النافذة المنبثقة...")
+        
+        # محددات لزر النشر النهائي
+        publish_button_selectors = [
+            'button[data-testid="publishConfirmButton"]',
+            'button[data-action="publish-now"]',
+            'button.button--primary',
+            'button[type="submit"]'
+        ]
+        
+        final_publish_button = None
+        for selector in publish_button_selectors:
+            try:
+                final_publish_button = wait.until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                )
+                if "publish" in final_publish_button.text.lower():
+                    print(f"    ✅ تم العثور على زر النشر باستخدام: {selector}")
                     break
-        except Exception as e:
-            print(f"    ❌ فشلت المحاولة 2: {str(e)[:100]}")
-    
-    # المحاولة 3: استخدام data-testid
-    if not publish_success:
-        try:
-            print("    🔍 المحاولة 3: استخدام data-testid...")
-            final_publish_button = driver.find_element(By.CSS_SELECTOR, 'button[data-testid="publishConfirmButton"]')
-            
-            if final_publish_button:
-                # التحقق من نص الزر
-                button_text = final_publish_button.text.lower()
-                print(f"    📝 نص الزر: {button_text}")
-                
-                driver.execute_script("arguments[0].click();", final_publish_button)
-                print("    ✅ تم النقر على زر النشر عبر data-testid")
-                publish_success = True
-                
-        except Exception as e:
-            print(f"    ❌ فشلت المحاولة 3: {str(e)[:100]}")
-    
-    # المحاولة 4: JavaScript مباشر
-    if not publish_success:
-        try:
-            print("    🔍 المحاولة 4: JavaScript مباشر...")
-            js_publish = """
-            // البحث عن جميع الأزرار
-            const buttons = document.querySelectorAll('button');
-            let clicked = false;
-            
-            // البحث عن زر النشر
-            buttons.forEach(btn => {
-                const text = btn.textContent.toLowerCase();
-                if (!clicked && text.includes('publish') && 
-                    (text.includes('now') || (!text.includes('schedule') && !text.includes('draft')))) {
-                    btn.click();
-                    clicked = true;
-                }
-            });
-            
-            if (clicked) return 'Success: Clicked Publish';
-            
-            // البحث عن زر التأكيد
-            const confirmBtn = document.querySelector('[data-testid="publishConfirmButton"]');
-            if (confirmBtn) {
-                confirmBtn.click();
-                return 'Success: Clicked Confirm';
-            }
-            
-            return 'Failed: No button found';
-            """
-            
-            result = driver.execute_script(js_publish)
-            print(f"    📝 نتيجة JavaScript: {result}")
-            if "Success" in result:
-                publish_success = True
-                
-        except Exception as e:
-            print(f"    ❌ فشلت المحاولة 4: {str(e)[:100]}")
-    
+            except:
+                continue
+        
+        if final_publish_button:
+            # محاولة النقر المزدوجة لزيادة الموثوقية
+            print("    🖱️ الضغط على زر النشر عبر JavaScript")
+            driver.execute_script("arguments[0].click();", final_publish_button)
+            time.sleep(2)  # انتظار بسيط للتأكد من التنفيذ
+            publish_success = True
+        else:
+            print("    ❌ لم يتم العثور على زر النشر النهائي.")
+
+    except Exception as e:
+        print(f"    ❌ فشلت المحاولة: {str(e)[:100]}")
+        driver.save_screenshot("final_publish_error.png")
+
     # حفظ لقطة شاشة بعد محاولات النشر
     time.sleep(3)
     driver.save_screenshot("after_publish_attempts.png")
@@ -727,9 +686,10 @@ def publish_with_optimized_attempts(driver, wait):
     if publish_success:
         print("--- ✅ تم إرسال أمر النشر بنجاح!")
     else:
-        print("--- ⚠️ جميع المحاولات فشلت، لكن قد يكون النشر تم بالفعل")
+        print("--- ⚠️ جميع المحاولات فشلت.")
     
     return publish_success
+
 
 def log_success_stats(title, url):
     """تسجيل إحصائيات النجاح"""
