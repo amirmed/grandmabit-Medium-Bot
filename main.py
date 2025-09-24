@@ -16,7 +16,7 @@ from selenium_stealth import stealth
 # --- برمجة ahmed si - النسخة v34 Optimized ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
-SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
+SITE_NAME = "grandmabites" # اسم الموقع بدون .com
 SITE_DOMAIN = f"{SITE_NAME}.com"
 RSS_URL = f"https://{SITE_DOMAIN}/feed"
 
