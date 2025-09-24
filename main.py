@@ -7,8 +7,8 @@ import json
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
@@ -16,7 +16,7 @@ from selenium_stealth import stealth
 # --- برمجة ahmed si - النسخة v34 Optimized ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
-SITE_NAME = "grandmabites" # اسم الموقع بدون .com
+SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
 SITE_DOMAIN = f"{SITE_NAME}.com"
 RSS_URL = f"https://{SITE_DOMAIN}/feed"
 
@@ -33,7 +33,7 @@ IMAGE_PATHS = [
 ]
 
 # وضع الاختبار - ضعه True للاختبار بدون نشر فعلي
-TEST_MODE = os.environ.get("TEST_MODE", "true").lower() == "true"
+TEST_MODE = os.environ.get("TEST_MODE", "false").lower() == "true"
 # ==========================================
 
 POSTED_LINKS_FILE = "posted_links.txt"
@@ -81,7 +81,7 @@ def is_valid_article_image(url):
             return False
     
     exclude_keywords = [
-        'avatar', 'author', 'profile', 'logo', 'icon',
+        'avatar', 'author', 'profile', 'logo', 'icon', 
         'thumbnail', 'thumb', 'placeholder', 'blank',
         'advertising', 'banner', 'badge', 'button'
     ]
@@ -115,16 +115,17 @@ def scrape_article_images_with_alt(article_url):
     """كشط الصور مع نصوص alt من داخل المقال"""
     print(f"--- 🔍 كشط صور المقال بـ Selenium من: {article_url}")
     
-    options = webdriver.FirefoxOptions()
+    options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
+    options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     
-    service = FirefoxService(GeckoDriverManager().install())
-    driver = webdriver.Firefox(service=service, options=options)
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
     
     stealth(driver,
             languages=["en-US", "en"],
@@ -381,17 +382,17 @@ def rewrite_content_with_gemini(title, content_html, original_link, image1_alt="
     **Requirements:**
     1. **New Title:** Create an engaging, SEO-optimized title (60-70 characters)
     2. **Article Body:** Write 600-700 words in clean HTML format
-        - Start with a compelling introduction
-        - Include practical tips and insights
-        - Use headers (h2, h3) for structure
-        - Add numbered or bulleted lists where appropriate
-        - **IMPORTANT**: Use ONLY simple HTML tags (p, h2, h3, ul, ol, li, strong, em, br)
-        - **DO NOT** use img, figure, or complex tags
-        - Insert these EXACT placeholders AS WRITTEN:
-          * INSERT_IMAGE_1_HERE (after the introduction paragraph)
-          * INSERT_MID_CTA_HERE (after the first image, natural placement)
-          * INSERT_IMAGE_2_HERE (in the middle section of the article)
-        - DO NOT add any call-to-action or links in the content (they will be added automatically)
+       - Start with a compelling introduction
+       - Include practical tips and insights
+       - Use headers (h2, h3) for structure
+       - Add numbered or bulleted lists where appropriate
+       - **IMPORTANT**: Use ONLY simple HTML tags (p, h2, h3, ul, ol, li, strong, em, br)
+       - **DO NOT** use img, figure, or complex tags
+       - Insert these EXACT placeholders AS WRITTEN:
+         * INSERT_IMAGE_1_HERE (after the introduction paragraph)
+         * INSERT_MID_CTA_HERE (after the first image, natural placement)
+         * INSERT_IMAGE_2_HERE (in the middle section of the article)
+       - DO NOT add any call-to-action or links in the content (they will be added automatically)
     3. **Tags:** Suggest 5 relevant Medium tags
     4. **Image Captions:** Create engaging captions that relate to the images
 
@@ -483,6 +484,74 @@ def prepare_html_with_multiple_images_and_ctas(content_html, image1_data, image2
     final_cta = create_final_cta(original_link)
     
     return content_html + final_cta
+
+def add_tags_safely(driver, wait, tags):
+    """إضافة الوسوم بطريقة أكثر موثوقية"""
+    if not tags:
+        return False
+    
+    try:
+        # انتظار قليل لضمان تحميل الصفحة
+        time.sleep(2)
+        
+        # محاولة العثور على حقل الوسوم بطرق متعددة
+        selectors = [
+            'div[data-testid="publishTopicsInput"]',
+            'input[placeholder*="Add a tag"]',
+            'input[placeholder*="Add up to"]',
+            'input[placeholder*="topic"]',
+            'div.tags-input',
+            'input[aria-label*="tag"]',
+            'input[aria-label*="topic"]'
+        ]
+        
+        tags_input = None
+        for selector in selectors:
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                if elements:
+                    tags_input = elements[0]
+                    print(f"    ✅ وجدت حقل الوسوم: {selector}")
+                    break
+            except:
+                continue
+        
+        if not tags_input:
+            # محاولة أخيرة بالبحث عن أي input
+            all_inputs = driver.find_elements(By.TAG_NAME, "input")
+            for inp in all_inputs:
+                placeholder = inp.get_attribute("placeholder") or ""
+                if "tag" in placeholder.lower() or "topic" in placeholder.lower():
+                    tags_input = inp
+                    print("    ✅ وجدت حقل الوسوم عبر placeholder")
+                    break
+        
+        if tags_input:
+            # النقر على الحقل
+            driver.execute_script("arguments[0].scrollIntoView(true);", tags_input)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", tags_input)
+            time.sleep(1)
+            
+            # إضافة الوسوم
+            for i, tag in enumerate(tags[:5]):
+                if tag:
+                    tags_input.send_keys(tag)
+                    time.sleep(0.5)
+                    tags_input.send_keys(Keys.ENTER)
+                    time.sleep(1)
+                    print(f"    ✅ تمت إضافة الوسم {i+1}: {tag}")
+            
+            print(f"--- ✅ تمت إضافة {len(tags[:5])} وسوم بنجاح")
+            return True
+        else:
+            print("    ℹ️ لم أجد حقل الوسوم - متابعة بدون وسوم")
+            return False
+            
+    except Exception as e:
+        print(f"    ⚠️ خطأ في إضافة الوسوم: {str(e)[:100]}")
+        print("    ℹ️ متابعة بدون وسوم - لا يؤثر على النشر")
+        return False
 
 def ensure_publish_now_selected(driver):
     """التأكد من تحديد خيار النشر الفوري"""
@@ -623,7 +692,7 @@ def publish_with_optimized_attempts(driver, wait):
             // البحث عن زر النشر
             buttons.forEach(btn => {
                 const text = btn.textContent.toLowerCase();
-                if (!clicked && text.includes('publish') &&
+                if (!clicked && text.includes('publish') && 
                     (text.includes('now') || (!text.includes('schedule') && !text.includes('draft')))) {
                     btn.click();
                     clicked = true;
@@ -778,6 +847,7 @@ def main():
     if TEST_MODE:
         print("🧪 وضع الاختبار: توقف قبل النشر الفعلي")
         print(f"    📝 العنوان: {final_title}")
+        print(f"    🏷️ الوسوم: {ai_tags}")
         return
 
     # --- النشر على Medium ---
@@ -788,22 +858,22 @@ def main():
         print("!!! خطأ: لم يتم العثور على الكوكيز.")
         return
 
-    options = webdriver.FirefoxOptions()
+    options = webdriver.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
     
-    service = FirefoxService(GeckoDriverManager().install())
-    driver = webdriver.Firefox(service=service, options=options)
-    
-    stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+
+    stealth(driver, 
+            languages=["en-US", "en"], 
+            vendor="Google Inc.", 
+            platform="Win32", 
+            webgl_vendor="Intel Inc.", 
+            renderer="Intel Iris OpenGL Engine", 
             fix_hairline=True)
     
     try:
@@ -862,12 +932,17 @@ def main():
         print("--- 7. التأكد من اختيار 'النشر الفوري'...")
         ensure_publish_now_selected(driver)
         
+        print("--- 8. إضافة الوسوم (اختياري)...")
+        tags_added = add_tags_safely(driver, wait, ai_tags)
+        if not tags_added:
+            print("    ℹ️ متابعة بدون وسوم - لا يؤثر على النشر")
+        
         # النشر النهائي بمحاولات محسّنة
-        print("--- 8. النشر النهائي...")
+        print("--- 9. النشر النهائي...")
         publish_result = publish_with_optimized_attempts(driver, wait)
         
-        print("--- 9. انتظار معالجة النشر...")
-        time.sleep(20) # انتظار أطول للتأكد من إتمام العملية
+        print("--- 10. انتظار معالجة النشر...")
+        time.sleep(20)  # انتظار أطول للتأكد من إتمام العملية
         
         # حفظ لقطة شاشة نهائية
         driver.save_screenshot("final_result.png")
