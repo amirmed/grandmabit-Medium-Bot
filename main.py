@@ -11,12 +11,12 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium_stealth import stealth
+# from selenium_stealth import stealth # تم تعطيلها
 import random
 import unicodedata
 from bs4 import BeautifulSoup
 
-# --- برمجة ahmed si - النسخة v37 Final ---
+# --- برمجة ahmed si - النسخة v38 Final Fix ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -130,13 +130,13 @@ def scrape_article_images_with_alt(article_url):
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     
-    stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True)
+    # stealth(driver, # تم تعطيلها
+    #         languages=["en-US", "en"],
+    #         vendor="Google Inc.",
+    #         platform="Win32",
+    #         webgl_vendor="Intel Inc.",
+    #         renderer="Intel Iris OpenGL Engine",
+    #         fix_hairline=True)
     
     images_data = []
     
@@ -616,7 +616,7 @@ def clean_html_content_for_medium(html_content):
     return cleaned_html
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v37 Final لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v38 Final Fix لموقع {SITE_DOMAIN} ---")
     
     if TEST_MODE:
         print("🧪 وضع الاختبار مُفعّل - سيتم إيقاف النشر الفعلي")
@@ -712,13 +712,13 @@ def main():
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
 
-    stealth(driver, 
-            languages=["en-US", "en"], 
-            vendor="Google Inc.", 
-            platform="Win32", 
-            webgl_vendor="Intel Inc.", 
-            renderer="Intel Iris OpenGL Engine", 
-            fix_hairline=True)
+    # stealth(driver, # تم تعطيلها
+    #         languages=["en-US", "en"], 
+    #         vendor="Google Inc.", 
+    #         platform="Win32", 
+    #         webgl_vendor="Intel Inc.", 
+    #         renderer="Intel Iris OpenGL Engine", 
+    #         fix_hairline=True)
     
     try:
         print("--- 2. إعداد الجلسة...")
@@ -753,9 +753,8 @@ def main():
         story_field.send_keys(Keys.CONTROL, 'v')
         
         print("--- ⏳ انتظار رفع الصور وحفظ المقال...")
-        time.sleep(random.uniform(15, 20)) # زيادة الانتظار
+        time.sleep(random.uniform(15, 20))
         
-        # التحقق من وجود رسالة الحفظ
         saved_status = check_for_save_status(driver, wait)
         
         if not saved_status:
@@ -782,23 +781,20 @@ def main():
         
         if publish_success:
             print("--- ✅ تم إرسال أمر النشر بنجاح! انتظار التأكيد النهائي...")
-            # انتظار تغيير الرابط لمدة تصل إلى 60 ثانية
             try:
+                # التحقق من أن الرابط تغير إلى رابط منشور
+                publish_url_pattern = r'medium\.com\/@[\w-]+\/.*'
                 WebDriverWait(driver, 60).until(
-                    EC.url_changes(driver.current_url)
+                    EC.url_matches(publish_url_pattern)
                 )
-                print("--- ✅ تم تأكيد تغيير الرابط.")
+                print("--- ✅ تم تأكيد تغيير الرابط إلى رابط منشور.")
                 current_url = driver.current_url
                 
-                if "draft" not in current_url and "edit" not in current_url:
-                    add_posted_link(post_to_publish.link)
-                    log_success_stats(final_title, current_url)
-                    print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح! الرابط: {current_url} 🎉🎉🎉")
-                else:
-                    print(">>> ⚠️ النشر فشل! ما زال المقال في المسودة.")
-                    print(f"    الرابط الحالي: {current_url}")
+                add_posted_link(post_to_publish.link)
+                log_success_stats(final_title, current_url)
+                print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح! الرابط: {current_url} 🎉🎉🎉")
             except:
-                print(">>> ❌ فشل التحقق من الرابط. الرابط لم يتغير.")
+                print(">>> ❌ فشل التحقق من الرابط. الرابط لم يتغير إلى رابط منشور.")
                 print(f"    الرابط الحالي: {driver.current_url}")
             
             driver.save_screenshot("final_result.png")
