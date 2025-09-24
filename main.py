@@ -14,8 +14,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
 import random
 import unicodedata
+from bs4 import BeautifulSoup
 
-# --- برمجة ahmed si - النسخة v35 Robust ---
+# --- برمجة ahmed si - النسخة v36 Ultimate Fix ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -497,7 +498,6 @@ def add_tags_safely(driver, wait, tags):
             (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
         ))
         
-        # التأكد من أن الحقل قابل للنقر
         driver.execute_script("arguments[0].scrollIntoView(true);", tags_input)
         driver.execute_script("arguments[0].click();", tags_input)
         time.sleep(random.uniform(1, 2))
@@ -531,7 +531,6 @@ def publish_with_optimized_attempts(driver, wait, attempts=3):
     for i in range(attempts):
         print(f"--- 🚀 بدء محاولة النشر النهائي رقم {i+1}...")
         try:
-            # البحث عن زر النشر في النافذة المنبثقة
             publish_button_selectors = [
                 'button[data-testid="publishConfirmButton"]',
                 'button[data-action="publish-now"]',
@@ -554,12 +553,11 @@ def publish_with_optimized_attempts(driver, wait, attempts=3):
                 print("    🖱️ تم الضغط على زر النشر بنجاح.")
                 time.sleep(random.uniform(5, 10))
                 
-                # التحقق من أن النافذة المنبثقة قد اختفت
                 try:
                     WebDriverWait(driver, 10).until(
                         EC.invisibility_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishing-modal"]'))
                     )
-                    return True  # تم النشر بنجاح
+                    return True
                 except:
                     print("    ⚠️ النافذة المنبثقة لم تختفِ، قد تكون هناك مشكلة.")
                     driver.save_screenshot(f"publish_attempt_{i+1}_failed.png")
@@ -602,16 +600,29 @@ def log_success_stats(title, url):
     
     print(f"📊 إجمالي المقالات المنشورة: {stats['total_published']}")
 
-def clean_html_content(html):
-    """تنظيف المحتوى من علامات HTML غير الضرورية"""
-    soup = BeautifulSoup(html, 'html.parser')
+def clean_html_content_for_medium(html_content):
+    """تنظيف المحتوى من أي علامات أو أحرف قد تسبب مشاكل"""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # إزالة كل العلامات غير المسموح بها من Medium
+    allowed_tags = ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'strong', 'em', 'br', 'a', 'img']
     for tag in soup.find_all(True):
-        if tag.name not in ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'strong', 'em', 'br', 'a', 'img']:
+        if tag.name not in allowed_tags:
             tag.unwrap()
-    return str(soup)
+    
+    # تحويل إلى نص مع ترميز صحيح
+    cleaned_html = str(soup)
+    
+    # إزالة أي أحرف unicode غير مرئية
+    cleaned_html = ''.join(c for c in cleaned_html if unicodedata.category(c)[0] != 'C')
+    
+    # إزالة المسافات الزائدة
+    cleaned_html = re.sub(r'[\s\n\r]+', ' ', cleaned_html)
+    
+    return cleaned_html
 
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v35 Robust لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v36 Ultimate Fix لموقع {SITE_DOMAIN} ---")
     
     if TEST_MODE:
         print("🧪 وضع الاختبار مُفعّل - سيتم إيقاف النشر الفعلي")
@@ -684,7 +695,8 @@ def main():
         
         full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
 
-    full_html_content = clean_html_content(full_html_content)
+    # تنظيف المحتوى قبل اللصق
+    full_html_content = clean_html_content_for_medium(full_html_content)
     
     if TEST_MODE:
         print("🧪 وضع الاختبار: توقف قبل النشر الفعلي")
@@ -748,7 +760,7 @@ def main():
         story_field.send_keys(Keys.CONTROL, 'v')
         
         print("--- ⏳ انتظار رفع الصور وحفظ المقال...")
-        time.sleep(random.uniform(10, 15))
+        time.sleep(random.uniform(15, 20)) # زيادة الانتظار
         check_for_save_status(driver, wait)
         
         driver.save_screenshot("content_ready.png")
@@ -795,5 +807,6 @@ def main():
         print("--- تم إغلاق الروبوت ---")
 
 if __name__ == "__main__":
-    from bs4 import BeautifulSoup
     main()
+
+---
