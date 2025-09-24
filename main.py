@@ -12,8 +12,10 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium_stealth import stealth
+import random
+import unicodedata
 
-# --- برمجة ahmed si - النسخة v34 Optimized ---
+# --- برمجة ahmed si - النسخة v35 Robust ---
 
 # ====== إعدادات الموقع - غيّر هنا فقط ======
 SITE_NAME = "grandmabites"  # اسم الموقع بدون .com
@@ -491,205 +493,87 @@ def add_tags_safely(driver, wait, tags):
         return False
     
     try:
-        # انتظار قليل لضمان تحميل الصفحة
-        time.sleep(2)
+        tags_input = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, 'div[data-testid="publishTopicsInput"]')
+        ))
         
-        # محاولة العثور على حقل الوسوم بطرق متعددة
-        selectors = [
-            'div[data-testid="publishTopicsInput"]',
-            'input[placeholder*="Add a tag"]',
-            'input[placeholder*="Add up to"]',
-            'input[placeholder*="topic"]',
-            'div.tags-input',
-            'input[aria-label*="tag"]',
-            'input[aria-label*="topic"]'
-        ]
+        # التأكد من أن الحقل قابل للنقر
+        driver.execute_script("arguments[0].scrollIntoView(true);", tags_input)
+        driver.execute_script("arguments[0].click();", tags_input)
+        time.sleep(random.uniform(1, 2))
         
-        tags_input = None
-        for selector in selectors:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                if elements:
-                    tags_input = elements[0]
-                    print(f"    ✅ وجدت حقل الوسوم: {selector}")
-                    break
-            except:
-                continue
+        for i, tag in enumerate(tags[:5]):
+            if tag:
+                tags_input.send_keys(tag)
+                time.sleep(random.uniform(0.5, 1.5))
+                tags_input.send_keys(Keys.ENTER)
+                time.sleep(random.uniform(0.5, 1.5))
         
-        if not tags_input:
-            # محاولة أخيرة بالبحث عن أي input
-            all_inputs = driver.find_elements(By.TAG_NAME, "input")
-            for inp in all_inputs:
-                placeholder = inp.get_attribute("placeholder") or ""
-                if "tag" in placeholder.lower() or "topic" in placeholder.lower():
-                    tags_input = inp
-                    print("    ✅ وجدت حقل الوسوم عبر placeholder")
-                    break
-        
-        if tags_input:
-            # النقر على الحقل
-            driver.execute_script("arguments[0].scrollIntoView(true);", tags_input)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", tags_input)
-            time.sleep(1)
-            
-            # إضافة الوسوم
-            for i, tag in enumerate(tags[:5]):
-                if tag:
-                    tags_input.send_keys(tag)
-                    time.sleep(0.5)
-                    tags_input.send_keys(Keys.ENTER)
-                    time.sleep(1)
-                    print(f"    ✅ تمت إضافة الوسم {i+1}: {tag}")
-            
-            print(f"--- ✅ تمت إضافة {len(tags[:5])} وسوم بنجاح")
-            return True
-        else:
-            print("    ℹ️ لم أجد حقل الوسوم - متابعة بدون وسوم")
-            return False
-            
-    except Exception as e:
-        print(f"    ⚠️ خطأ في إضافة الوسوم: {str(e)[:100]}")
-        print("    ℹ️ متابعة بدون وسوم - لا يؤثر على النشر")
-        return False
-
-def ensure_publish_now_selected(driver):
-    """التأكد من تحديد خيار النشر الفوري"""
-    print("--- 🎯 التأكد من تحديد 'النشر الفوري'...")
-    
-    try:
-        # محاولة 1: البحث عن radio button للنشر الفوري
-        try:
-            publish_now_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Publish now')]")
-            if publish_now_elements:
-                element = publish_now_elements[0]
-                driver.execute_script("arguments[0].click();", element)
-                print("    ✅ تم تحديد 'Publish now' عبر النص")
-                time.sleep(1)
-                return True
-        except:
-            pass
-        
-        # محاولة 2: البحث عن input radio
-        try:
-            radio_buttons = driver.find_elements(By.CSS_SELECTOR, 'input[type="radio"]')
-            if radio_buttons:
-                # عادة الخيار الأول هو Publish now
-                driver.execute_script("arguments[0].click();", radio_buttons[0])
-                print("    ✅ تم تحديد أول خيار radio (النشر الفوري)")
-                time.sleep(1)
-                return True
-        except:
-            pass
-        
-        # محاولة 3: البحث في الـ labels
-        try:
-            labels = driver.find_elements(By.TAG_NAME, "label")
-            for label in labels:
-                if "publish now" in label.text.lower():
-                    driver.execute_script("arguments[0].click();", label)
-                    print("    ✅ تم النقر على label 'Publish now'")
-                    time.sleep(1)
-                    return True
-        except:
-            pass
-        
-        print("    ℹ️ خيار النشر الفوري قد يكون محدداً بالفعل")
+        print(f"--- ✅ تمت إضافة {len(tags[:5])} وسوم بنجاح")
         return True
-        
     except Exception as e:
-        print(f"    ⚠️ خطأ في تحديد خيار النشر: {str(e)[:100]}")
+        print(f"--- ⚠️ خطأ في إضافة الوسوم: {e}")
         return False
 
-def quick_publish_with_enter(driver):
-    """نشر سريع بـ Enter - الطريقة الأكثر نجاحاً"""
+def check_for_save_status(driver, wait, timeout=30):
+    """انتظار ظهور رسالة 'Saved'"""
+    print("--- ⏳ انتظار حفظ المقال...")
     try:
-        print("    ⚡ محاولة النشر السريع بـ Enter...")
-        
-        # التركيز على العنصر النشط
-        active = driver.switch_to.active_element
-        
-        # إرسال Enter مرتين للتأكيد
-        active.send_keys(Keys.ENTER)
-        time.sleep(1)
-        
-        # التحقق من وجود زر تأكيد إضافي
-        try:
-            confirm_buttons = driver.find_elements(By.TAG_NAME, "button")
-            for btn in confirm_buttons:
-                if "publish" in btn.text.lower() or "confirm" in btn.text.lower():
-                    driver.execute_script("arguments[0].click();", btn)
-                    print("    ✅ تم النقر على زر التأكيد")
-                    break
-        except:
-            pass
-        
-        print("    ✅ تم النشر بـ Enter بنجاح")
+        saved_span = wait.until(EC.visibility_of_element_located((By.XPATH, "//*[contains(text(), 'Saved')]")))
+        print("--- ✅ تم حفظ المقال بنجاح.")
         return True
-        
-    except Exception as e:
-        print(f"    ❌ فشل النشر بـ Enter: {str(e)[:100]}")
+    except:
+        print("--- ⚠️ لم يتم العثور على رسالة 'Saved' خلال الوقت المحدد.")
         return False
 
-def publish_with_optimized_attempts(driver, wait):
+def publish_with_optimized_attempts(driver, wait, attempts=3):
     """محاولات محسّنة للنشر النهائي"""
-    print("--- 🚀 بدء عملية النشر النهائي (محسّن)...")
-    
-    # حفظ لقطة شاشة قبل النشر
-    driver.save_screenshot("before_final_publish.png")
-    print("    📸 تم حفظ لقطة شاشة قبل النشر")
-    
-    publish_success = False
-    
-    try:
-        # البحث عن زر "Publish now" في النافذة المنبثقة
-        print("    🔍 محاولة العثور على زر النشر في النافذة المنبثقة...")
-        
-        # محددات لزر النشر النهائي
-        publish_button_selectors = [
-            'button[data-testid="publishConfirmButton"]',
-            'button[data-action="publish-now"]',
-            'button.button--primary',
-            'button[type="submit"]'
-        ]
-        
-        final_publish_button = None
-        for selector in publish_button_selectors:
-            try:
-                final_publish_button = wait.until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                )
-                if "publish" in final_publish_button.text.lower():
-                    print(f"    ✅ تم العثور على زر النشر باستخدام: {selector}")
-                    break
-            except:
-                continue
-        
-        if final_publish_button:
-            # محاولة النقر المزدوجة لزيادة الموثوقية
-            print("    🖱️ الضغط على زر النشر عبر JavaScript")
-            driver.execute_script("arguments[0].click();", final_publish_button)
-            time.sleep(2)  # انتظار بسيط للتأكد من التنفيذ
-            publish_success = True
-        else:
-            print("    ❌ لم يتم العثور على زر النشر النهائي.")
+    for i in range(attempts):
+        print(f"--- 🚀 بدء محاولة النشر النهائي رقم {i+1}...")
+        try:
+            # البحث عن زر النشر في النافذة المنبثقة
+            publish_button_selectors = [
+                'button[data-testid="publishConfirmButton"]',
+                'button[data-action="publish-now"]',
+            ]
+            
+            final_publish_button = None
+            for selector in publish_button_selectors:
+                try:
+                    final_publish_button = wait.until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                    )
+                    if "publish" in final_publish_button.text.lower():
+                        print(f"    ✅ تم العثور على زر النشر باستخدام: {selector}")
+                        break
+                except:
+                    continue
+            
+            if final_publish_button:
+                driver.execute_script("arguments[0].click();", final_publish_button)
+                print("    🖱️ تم الضغط على زر النشر بنجاح.")
+                time.sleep(random.uniform(5, 10))
+                
+                # التحقق من أن النافذة المنبثقة قد اختفت
+                try:
+                    WebDriverWait(driver, 10).until(
+                        EC.invisibility_of_element_located((By.CSS_SELECTOR, 'div[data-testid="publishing-modal"]'))
+                    )
+                    return True  # تم النشر بنجاح
+                except:
+                    print("    ⚠️ النافذة المنبثقة لم تختفِ، قد تكون هناك مشكلة.")
+                    driver.save_screenshot(f"publish_attempt_{i+1}_failed.png")
+                    continue
+            else:
+                print("    ❌ لم يتم العثور على زر النشر النهائي.")
+                return False
 
-    except Exception as e:
-        print(f"    ❌ فشلت المحاولة: {str(e)[:100]}")
-        driver.save_screenshot("final_publish_error.png")
-
-    # حفظ لقطة شاشة بعد محاولات النشر
-    time.sleep(3)
-    driver.save_screenshot("after_publish_attempts.png")
-    print("    📸 تم حفظ لقطة شاشة بعد محاولات النشر")
+        except Exception as e:
+            print(f"    ❌ فشلت المحاولة: {str(e)}")
+            driver.save_screenshot(f"publish_attempt_{i+1}_error.png")
+            time.sleep(random.uniform(5, 10))
     
-    if publish_success:
-        print("--- ✅ تم إرسال أمر النشر بنجاح!")
-    else:
-        print("--- ⚠️ جميع المحاولات فشلت.")
-    
-    return publish_success
-
+    return False
 
 def log_success_stats(title, url):
     """تسجيل إحصائيات النجاح"""
@@ -710,7 +594,6 @@ def log_success_stats(title, url):
         "site": SITE_DOMAIN
     })
     
-    # الاحتفاظ بآخر 100 مقال فقط
     if len(stats["posts"]) > 100:
         stats["posts"] = stats["posts"][-100:]
     
@@ -719,10 +602,17 @@ def log_success_stats(title, url):
     
     print(f"📊 إجمالي المقالات المنشورة: {stats['total_published']}")
 
+def clean_html_content(html):
+    """تنظيف المحتوى من علامات HTML غير الضرورية"""
+    soup = BeautifulSoup(html, 'html.parser')
+    for tag in soup.find_all(True):
+        if tag.name not in ['p', 'h2', 'h3', 'ul', 'ol', 'li', 'strong', 'em', 'br', 'a', 'img']:
+            tag.unwrap()
+    return str(soup)
+
 def main():
-    print(f"--- بدء تشغيل الروبوت الناشر v34 Optimized لموقع {SITE_DOMAIN} ---")
+    print(f"--- بدء تشغيل الروبوت الناشر v35 Robust لموقع {SITE_DOMAIN} ---")
     
-    # وضع الاختبار
     if TEST_MODE:
         print("🧪 وضع الاختبار مُفعّل - سيتم إيقاف النشر الفعلي")
     
@@ -739,15 +629,6 @@ def main():
         print(f"--- 📷 صورة RSS احتياطية: {rss_image[:80]}...")
     
     image1_data, image2_data = get_best_images_for_article(original_link, rss_image)
-    
-    if image1_data:
-        print(f"--- 🖼️ الصورة الأولى: {image1_data['url'][:60]}...")
-        if image1_data['alt']:
-            print(f"      Alt: {image1_data['alt'][:50]}...")
-    if image2_data:
-        print(f"--- 🖼️ الصورة الثانية: {image2_data['url'][:60]}...")
-        if image2_data['alt']:
-            print(f"      Alt: {image2_data['alt'][:50]}...")
     
     if not image1_data:
         print("--- ⚠️ لم يتم العثور على صور صالحة للمقال!")
@@ -803,14 +684,12 @@ def main():
         
         full_html_content = image1_html + caption1 + mid_cta + original_content_html + image2_html + caption2 + final_cta
 
-    # في وضع الاختبار، نتوقف هنا
+    full_html_content = clean_html_content(full_html_content)
+    
     if TEST_MODE:
         print("🧪 وضع الاختبار: توقف قبل النشر الفعلي")
-        print(f"    📝 العنوان: {final_title}")
-        print(f"    🏷️ الوسوم: {ai_tags}")
         return
 
-    # --- النشر على Medium ---
     sid_cookie = os.environ.get("MEDIUM_SID_COOKIE")
     uid_cookie = os.environ.get("MEDIUM_UID_COOKIE")
     
@@ -847,14 +726,13 @@ def main():
         
         wait = WebDriverWait(driver, 30)
         
-        print("--- 4. كتابة العنوان...")
+        print("--- 4. كتابة العنوان والمحتوى...")
         title_field = wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, 'h3[data-testid="editorTitleParagraph"]')
         ))
         title_field.click()
         title_field.send_keys(final_title)
         
-        print("--- 5. إدراج المحتوى مع الصور وCTAs...")
         story_field = wait.until(EC.element_to_be_clickable(
             (By.CSS_SELECTOR, 'p[data-testid="editorParagraphText"]')
         ))
@@ -869,12 +747,11 @@ def main():
         driver.execute_script(js_script, full_html_content)
         story_field.send_keys(Keys.CONTROL, 'v')
         
-        print("--- ⏳ انتظار رفع الصور...")
-        time.sleep(12)
+        print("--- ⏳ انتظار رفع الصور وحفظ المقال...")
+        time.sleep(random.uniform(10, 15))
+        check_for_save_status(driver, wait)
         
-        # حفظ لقطة شاشة للمحتوى
         driver.save_screenshot("content_ready.png")
-        print("    📸 تم حفظ لقطة شاشة للمحتوى")
         
         print("--- 6. بدء النشر (فتح نافذة الخيارات)...")
         publish_button = wait.until(EC.element_to_be_clickable(
@@ -882,52 +759,41 @@ def main():
         ))
         publish_button.click()
         
-        # انتظار ظهور نافذة النشر
-        time.sleep(3)
-        
-        # حفظ لقطة شاشة لنافذة النشر
+        time.sleep(random.uniform(2, 4))
         driver.save_screenshot("publish_dialog.png")
-        print("    📸 تم حفظ لقطة شاشة لنافذة النشر")
         
-        print("--- 7. التأكد من اختيار 'النشر الفوري'...")
-        ensure_publish_now_selected(driver)
+        print("--- 7. إضافة الوسوم...")
+        add_tags_safely(driver, wait, ai_tags)
         
-        print("--- 8. إضافة الوسوم (اختياري)...")
-        tags_added = add_tags_safely(driver, wait, ai_tags)
-        if not tags_added:
-            print("    ℹ️ متابعة بدون وسوم - لا يؤثر على النشر")
+        print("--- 8. النشر النهائي...")
+        publish_success = publish_with_optimized_attempts(driver, wait)
         
-        # النشر النهائي بمحاولات محسّنة
-        print("--- 9. النشر النهائي...")
-        publish_result = publish_with_optimized_attempts(driver, wait)
-        
-        print("--- 10. انتظار معالجة النشر...")
-        time.sleep(20)  # انتظار أطول للتأكد من إتمام العملية
-        
-        # حفظ لقطة شاشة نهائية
-        driver.save_screenshot("final_result.png")
-        print("    📸 تم حفظ لقطة شاشة نهائية")
-        
-        # التحقق من نجاح النشر
-        current_url = driver.current_url
-        if "published" in current_url or "@" in current_url or "/p/" in current_url:
-            print(f"--- ✅✅✅ تأكيد: تم النشر بنجاح! URL: {current_url}")
+        if publish_success:
+            print("--- ✅ تم إرسال أمر النشر بنجاح! انتظار التأكيد النهائي...")
+            time.sleep(random.uniform(15, 20))
+            current_url = driver.current_url
+            driver.save_screenshot("final_result.png")
             
-            # تسجيل الإحصائيات
-            log_success_stats(final_title, current_url)
-        
-        add_posted_link(post_to_publish.link)
-        print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح على {SITE_DOMAIN}! 🎉🎉🎉")
-        
+            if "draft" not in current_url and "edit" not in current_url:
+                add_posted_link(post_to_publish.link)
+                log_success_stats(final_title, current_url)
+                print(f">>> 🎉🎉🎉 تم نشر المقال بنجاح! الرابط: {current_url} 🎉🎉🎉")
+            else:
+                print(">>> ⚠️ النشر فشل! ما زال المقال في المسودة.")
+                print(f"    الرابط الحالي: {current_url}")
+        else:
+            print(">>> ❌ فشل النشر بعد كل المحاولات.")
+            driver.save_screenshot("final_publish_failed.png")
+            
     except Exception as e:
         print(f"!!! حدث خطأ فادح أثناء عملية النشر: {e}")
         driver.save_screenshot("error_screenshot.png")
         with open("error_page_source.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
-        print("--- تم حفظ لقطة الشاشة وHTML للمراجعة")
     finally:
         driver.quit()
         print("--- تم إغلاق الروبوت ---")
 
 if __name__ == "__main__":
+    from bs4 import BeautifulSoup
     main()
